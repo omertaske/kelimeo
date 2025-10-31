@@ -2,6 +2,8 @@ import React, { useState, useEffect, useCallback } from 'react';
 import './GameLobby.css';
 import { useAuth } from '../../context/AuthContext';
 import { calculateWinRate } from '../../utils/game/scoreUtils';
+import { createGame } from '../../services/gameService';
+import { createGameState } from '../../services/gameStateHelper';
 import UserProfile from './UserProfile';
 import MatchmakingButtons from './MatchmakingButtons';
 import WaitingMatch from './WaitingMatch';
@@ -14,6 +16,7 @@ const GameLobby = ({ currentUser, onStartGame, onLogout }) => {
   const [waitingForMatch, setWaitingForMatch] = useState(false);
   const [onlineUsers, setOnlineUsers] = useState([]);
   const [selectedOpponent, setSelectedOpponent] = useState(null);
+  const [matchGameId, setMatchGameId] = useState(null);
 
   const getRankIcon = (rank) => {
     const rankIcons = {
@@ -99,33 +102,67 @@ const GameLobby = ({ currentUser, onStartGame, onLogout }) => {
     return userRank || 'Unranked';
   };
 
-  const findRandomMatch = () => {
+  const findRandomMatch = async () => {
     if (onlineUsers.length === 0) {
       alert('Şu anda çevrimiçi rakip bulunamadı! 😕');
       return;
     }
 
+    const randomOpponent = onlineUsers[Math.floor(Math.random() * onlineUsers.length)];
+    setSelectedOpponent(randomOpponent);
     setWaitingForMatch(true);
     
-    setTimeout(() => {
-      const randomOpponent = onlineUsers[Math.floor(Math.random() * onlineUsers.length)];
-      setSelectedOpponent(randomOpponent);
+    // API'de gerçek oyun oluştur
+    const gameId = `game_${Date.now()}`;
+    const gameState = createGameState({
+      gameId,
+      player1Id: currentUser.id,
+      player2Id: randomOpponent.id,
+      boardId: 'classic', // Varsayılan tahta
+    });
+
+    const { success, game } = await createGame(gameState);
+    if (success) {
+      setMatchGameId(game.id);
+      console.log('Oyun API\'de olusturuldu:', game.id);
+    } else {
+      alert('Oyun oluşturulamadı! Lütfen tekrar deneyin.');
       setWaitingForMatch(false);
-      
-      setTimeout(() => {
-        onStartGame(randomOpponent);
-      }, 2000);
-    }, 2000);
+    }
   };
 
-  const challengeUser = (opponent) => {
+  const challengeUser = async (opponent) => {
     setSelectedOpponent(opponent);
     setWaitingForMatch(true);
+    
+    // API'de gerçek oyun oluştur
+    const gameId = `game_${Date.now()}`;
+    const gameState = createGameState({
+      gameId,
+      player1Id: currentUser.id,
+      player2Id: opponent.id,
+      boardId: 'classic', // Varsayılan tahta
+    });
 
-    setTimeout(() => {
+    const { success, game } = await createGame(gameState);
+    if (success) {
+      setMatchGameId(game.id);
+      console.log('Oyun API\'de olusturuldu:', game.id);
+    } else {
+      alert('Oyun oluşturulamadı! Lütfen tekrar deneyin.');
       setWaitingForMatch(false);
-      onStartGame(opponent);
-    }, 1500);
+    }
+  };
+
+  const handleBothReady = () => {
+    // Her iki oyuncu da hazır, oyunu başlat
+    setWaitingForMatch(false);
+    
+    // Oyun zaten API'de var, sadece startGame'e gameId'yi gönder
+    onStartGame(selectedOpponent, {
+      gameId: matchGameId,
+      isMultiplayer: true,
+    });
   };
 
   const handleJoinTournament = () => {
@@ -148,7 +185,12 @@ const GameLobby = ({ currentUser, onStartGame, onLogout }) => {
           <h3>🎮 Oyun Başlat</h3>
           
           {waitingForMatch ? (
-            <WaitingMatch selectedOpponent={selectedOpponent} />
+            <WaitingMatch 
+              selectedOpponent={selectedOpponent}
+              currentUser={currentUser}
+              gameId={matchGameId}
+              onBothReady={handleBothReady}
+            />
           ) : (
             <MatchmakingButtons 
               onFindMatch={findRandomMatch}

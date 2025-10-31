@@ -18,6 +18,26 @@ import {
   findValidBotPositions
 } from './gameUtils';
 import { getGlobalTileBag, resetGlobalTileBag } from '../utils/game/tileBag';
+import { useMultiplayerSync } from '../hooks/useGameSync';
+import { 
+  createGame, 
+  submitMove as submitMoveToAPI, 
+  passMove as passMoveToAPI,
+  endGame as endGameOnServer,
+  fetchGameState
+} from '../services/gameService';
+import { 
+  createGameState, 
+  getPlayerRole, 
+  isMyTurn,
+  PLAYER_ROLES 
+} from '../services/gameStateHelper';
+import { 
+  initializeMultiplayerGame,
+  sendMultiplayerMove,
+  sendMultiplayerPass,
+  applyServerGameState 
+} from '../utils/multiplayerHelpers';
 
 // ============================================================================
 // TEK ORTAK TILE BAG (Global Paylaşılan Torba)
@@ -64,6 +84,11 @@ export const GameProvider = ({ children }) => {
   const opponentPassCountRef = useRef(0); // Timer closure için ref
   const [opponentLetters, setOpponentLetters] = useState([]); // Bot/Rakip harfleri (oyun sonu için)
   
+  // Multiplayer için ek state'ler
+  const [isMultiplayer, setIsMultiplayer] = useState(false);
+  const [myRole, setMyRole] = useState(null); // 'player1' veya 'player2'
+  const [serverGameState, setServerGameState] = useState(null); // API'den gelen oyun durumu
+  
   // Pas sayaçlarını state değişikliği için kullanıyoruz
   console.log('Pas durumu:', { playerPassCount, opponentPassCount });
 
@@ -71,6 +96,71 @@ export const GameProvider = ({ children }) => {
   const updateTileBagSnapshot = useCallback(() => {
     setTileBagSnapshot(tileBag.getSnapshot());
   }, [tileBag]);
+
+  // ============================================================================
+  // MULTIPLAYER CALLBACKS
+  // ============================================================================
+
+  // Server'dan oyun güncellemesi geldiğinde
+  const handleGameUpdate = useCallback((serverGame) => {
+    console.log('Oyun guncellendi:', {
+      version: serverGame.version,
+      currentTurn: serverGame.currentTurn,
+    });
+
+    // Server state'i local state'e uygula
+    applyServerGameState(serverGame, {
+      setGameBoard,
+      setScore,
+      setCurrentTurn,
+      setMoveHistory,
+      setPlayerPassCount,
+      setOpponentPassCount,
+      setGameTimer,
+      setTurnTimer,
+      playerPassCountRef,
+      opponentPassCountRef,
+      myRole,
+    });
+
+    setServerGameState(serverGame);
+  }, [myRole]);
+
+  // Oyun bittiğinde
+  const handleGameEnd = useCallback((serverGame) => {
+    console.log('Oyun bitti:', {
+      status: serverGame.status,
+      winner: serverGame.winner,
+    });
+
+    setGameState(GAME_STATES.FINISHED);
+    setServerGameState(serverGame);
+
+    // İstatistikleri güncelle
+    const isWinner = serverGame.winner === myRole;
+    const finalScores = serverGame.finalScores || serverGame.scores;
+    
+    const myFinalScore = myRole === PLAYER_ROLES.PLAYER1 
+      ? finalScores.player1 
+      : finalScores.player2;
+
+    const newStats = {
+      gamesPlayed: (currentUser?.gamesPlayed || 0) + 1,
+      gamesWon: isWinner ? (currentUser?.gamesWon || 0) + 1 : (currentUser?.gamesWon || 0),
+      totalScore: (currentUser?.totalScore || 0) + myFinalScore,
+      bestScore: Math.max(currentUser?.bestScore || 0, myFinalScore),
+    };
+
+    updateUserStats(newStats);
+  }, [myRole, currentUser, updateUserStats]);
+
+  // Multiplayer senkronizasyon hook'u
+  useMultiplayerSync({
+    currentGame,
+    currentUserId: currentUser?.id,
+    onGameUpdate: handleGameUpdate,
+    onGameEnd: handleGameEnd,
+  });
   
   // TEK ORTAK TILE BAG — Oyuncu için harf çekme (ASYNC, atomic çekim)
   const generatePlayerLetters = useCallback(async () => {
@@ -417,26 +507,66 @@ export const GameProvider = ({ children }) => {
     switchTurn();
   }, [switchTurn, calculateScore, gameBoard, validateWord, findAllWords, opponentPassCount, playerPassCount, opponentLetters, tileBag, updateTileBagSnapshot, opponent?.rank, opponent?.level]);
 
-  const startGame = useCallback((opponentData, options = {}) => {
+  const startGame = useCallback(async (opponentData, options = {}) => {
     if (!currentRoom) return;
 
     const {
       gameId = `local-${Date.now()}`,
       boardId = currentRoom.id,
       opponentIsBot = opponentData?.isBot ?? false,
-      startedAt = new Date().toISOString()
+      startedAt = new Date().toISOString(),
+      isMultiplayer = false,
     } = options;
 
     setOpponent(opponentData);
-    setCurrentGame({
+    
+    const gameConfig = {
       id: gameId,
       boardId,
       opponentId: opponentData?.id ?? null,
       opponentIsBot,
       startedAt
-    });
+    };
+    
+    setCurrentGame(gameConfig);
     setGameState(GAME_STATES.PLAYING);
-    setCurrentTurn(Math.random() > 0.5 ? 'player' : 'opponent');
+    
+    // Multiplayer ise mevcut oyunu API'den çek
+    if (isMultiplayer && !opponentIsBot && currentUser?.id && opponentData?.id) {
+      setIsMultiplayer(true);
+      
+      // API'den mevcut oyunu çek (lobby'de zaten oluşturuldu)
+      const { success, game } = await fetchGameState(gameId);
+      
+      if (success && game) {
+        const playerRole = getPlayerRole(game, currentUser.id);
+        setMyRole(playerRole);
+        setServerGameState(game);
+        
+        // Server'dan gelen sıra bilgisini kullan
+        const isMyTurn = game.currentTurn === playerRole;
+        const localTurn = isMyTurn ? 'player' : 'opponent';
+        setCurrentTurn(localTurn);
+        
+        console.log('Multiplayer oyun yuklendi:', {
+          gameId: game.id,
+          myRole: playerRole,
+          isMyTurn,
+          localTurn,
+          status: game.status,
+        });
+      } else {
+        console.error('Oyun API\'den yuklenemedi:', gameId);
+        setIsMultiplayer(false);
+        setCurrentTurn(Math.random() > 0.5 ? 'player' : 'opponent');
+      }
+    } else {
+      // Bot oyunu - local mod
+      setIsMultiplayer(false);
+      setMyRole(null);
+      setCurrentTurn(Math.random() > 0.5 ? 'player' : 'opponent');
+    }
+    
     setGameTimer(300); // 5 dakika = 300 saniye
     setTurnTimer(60); // 60 saniye hamle süresi
     setScore({ player: 0, opponent: 0 });
@@ -462,9 +592,9 @@ export const GameProvider = ({ children }) => {
     })();
 
     if (currentUser?.username && opponentData?.username) {
-      console.log(`Oyun başladı: ${currentUser.username} vs ${opponentData.username}`);
+      console.log(`Oyun basladi: ${currentUser.username} vs ${opponentData.username}`);
     }
-  }, [currentRoom, generatePlayerLetters, initializeBoard, currentUser?.username, tileBag, updateTileBagSnapshot]);
+  }, [currentRoom, generatePlayerLetters, initializeBoard, currentUser, tileBag, updateTileBagSnapshot]);
 
   const availableBots = useMemo(() => {
     if (!bots?.length) {
@@ -655,6 +785,26 @@ export const GameProvider = ({ children }) => {
     setPlayerPassCount(0);
     playerPassCountRef.current = 0; // Ref'i de sıfırla
 
+    // Multiplayer ise hamleyi API'ye gönder
+    if (isMultiplayer && currentGame?.id && currentUser?.id) {
+      const newScore = score.player + totalScore;
+      
+      await sendMultiplayerMove({
+        gameId: currentGame.id,
+        playerId: currentUser.id,
+        word: mainWord.word,
+        positions,
+        gameBoard: tempBoard, // Güncel tahta durumu
+        scores: {
+          [myRole === PLAYER_ROLES.PLAYER1 ? 'player1' : 'player2']: newScore,
+          [myRole === PLAYER_ROLES.PLAYER1 ? 'player2' : 'player1']: score.opponent,
+        },
+        formedWords: validatedWords,
+      });
+      
+      console.log('Multiplayer hamle gonderildi:', mainWord.word);
+    }
+
     // Sırayı değiştir
     switchTurn();
     
@@ -675,9 +825,9 @@ export const GameProvider = ({ children }) => {
       words: validatedWords,
       mainWord: mainWord.word
     };
-  }, [calculateScore, gameState, currentTurn, switchTurn, validateWord, gameBoard, placedTiles, findAllWords, playerLetters, tileBag, updateTileBagSnapshot]);
+  }, [calculateScore, gameState, currentTurn, switchTurn, validateWord, gameBoard, placedTiles, findAllWords, playerLetters, tileBag, updateTileBagSnapshot, isMultiplayer, currentGame, currentUser, myRole, score]);
 
-  const endGame = useCallback((isWin, reason = '', finalizeScores = true) => {
+  const endGame = useCallback(async (isWin, reason = '', finalizeScores = true) => {
     let finalPlayerScore = score.player;
     let finalOpponentScore = score.opponent;
 
@@ -739,8 +889,25 @@ export const GameProvider = ({ children }) => {
     
     setGameState(GAME_STATES.FINISHED);
 
+    // Multiplayer ise oyun bitişini API'ye bildir
+    if (isMultiplayer && currentGame?.id && currentUser?.id) {
+      const winnerId = isWin ? currentUser.id : (opponent?.id || null);
+      const finalScores = {
+        [myRole === PLAYER_ROLES.PLAYER1 ? 'player1' : 'player2']: finalPlayerScore,
+        [myRole === PLAYER_ROLES.PLAYER1 ? 'player2' : 'player1']: finalOpponentScore
+      };
+      
+      await endGameOnServer(currentGame.id, {
+        winner: winnerId,
+        scores: finalScores,
+        reason
+      });
+      
+      console.log('Multiplayer oyun bitis bildirimi gonderildi');
+    }
+
     console.log('Oyun bitti:', gameResult);
-  }, [score, currentRoom, currentUser, updateUserStats, playerLetters, opponentLetters, tileBag]);
+  }, [score, currentRoom, currentUser, updateUserStats, playerLetters, opponentLetters, tileBag, isMultiplayer, currentGame, myRole, opponent]);
 
   const resetGame = useCallback(() => {
     setGameState(GAME_STATES.WAITING);
@@ -763,6 +930,11 @@ export const GameProvider = ({ children }) => {
     setWordMeanings({});
     setPlayerPassCount(0);
     setOpponentPassCount(0);
+    
+    // Multiplayer state'lerini de sıfırla
+    setIsMultiplayer(false);
+    setMyRole(null);
+    setServerGameState(null);
   }, [updateTileBagSnapshot]);
 
   const shuffleLetters = useCallback(() => {
@@ -799,7 +971,7 @@ export const GameProvider = ({ children }) => {
     return { success: true, message: `${addCount} harf değiştirildi!` };
   }, [currentTurn, playerLetters, switchTurn]);
 
-  const passMove = useCallback(() => {
+  const passMove = useCallback(async () => {
     if (currentTurn !== 'player') {
       return { success: false, error: 'Şu an pas geçemezsiniz!' };
     }
@@ -821,11 +993,21 @@ export const GameProvider = ({ children }) => {
       type: 'pass'
     }]);
 
+    // Multiplayer ise pas'ı API'ye gönder
+    if (isMultiplayer && currentGame?.id && currentUser?.id) {
+      await sendMultiplayerPass({
+        gameId: currentGame.id,
+        playerId: currentUser.id,
+      });
+      
+      console.log('Multiplayer pas gonderildi');
+    }
+
     // Her iki oyuncu da 2 kez pas geçti mi kontrol et (4 tur toplam)
     if (newPlayerPassCount >= 2 && opponentPassCount >= 2) {
       setTimeout(() => {
         // Oyun bitti - 4 tur boyunca hamle yapılmadı
-        console.log('🏁 Her iki taraf 2 kez pas geçti, oyun bitiyor...');
+        console.log('Her iki taraf 2 kez pas gecti, oyun bitiyor...');
         setGameState(GAME_STATES.FINISHED);
       }, 500);
       return { success: true, message: '4 tur pas geçildi! Oyun sona erdi.', gameEnded: true };
@@ -835,7 +1017,7 @@ export const GameProvider = ({ children }) => {
     switchTurn();
 
     return { success: true, message: 'Sıra geçildi!' };
-  }, [currentTurn, switchTurn, gameState, playerPassCount, opponentPassCount]);
+  }, [currentTurn, switchTurn, gameState, playerPassCount, opponentPassCount, isMultiplayer, currentGame, currentUser]);
 
   const placeTile = useCallback((letter, row, col, blankRepr = null) => {
     if (currentTurn !== 'player') return false;
