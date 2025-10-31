@@ -1,0 +1,104 @@
+.toast {
+  position: fixed;
+  top: 20px;
+  right: 20px;
+  transform: translateX(0);
+  padding: 12px 20px;
+  border-radius: 12px;
+  font-size: 15px;
+  font-weight: 500;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.2);
+  z-index: 10000;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  animation: slideInRight 0.3s ease-out;
+  max-width: 400px;
+  min-width: 250px;
+}
+
+/* Kapanma animasyonu */
+.toast.toast-closing {
+  animation: slideOutLeft 0.4s cubic-bezier(0.68, -0.55, 0.265, 1.55) forwards;
+}
+
+@keyframes slideInRight {
+  from {
+    transform: translateX(450px);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+@keyframes slideOutLeft {
+  0% {
+    transform: translateX(0) scale(1);
+    opacity: 1;
+  }
+  30% {
+    transform: translateX(-30px) scale(0.98);
+    opacity: 0.8;
+  }
+  100% {
+    transform: translateX(-500px) scale(0.8);
+    opacity: 0;
+  }
+}
+
+.toast-content {
+  flex: 1;
+  word-wrap: break-word;
+}
+
+.toast-close {
+  background: none;
+  border: none;
+  color: inherit;
+  font-size: 20px;
+  cursor: pointer;
+  padding: 4px 8px;
+  opacity: 0.7;
+  transition: opacity 0.2s;
+}
+
+.toast-close:hover {
+  opacity: 1;
+}
+
+/* Sarı Toast - Bilgilendirme (harf seçimi) */
+.toast-yellow {
+  background: linear-gradient(135deg, #FFD700, #FFA500);
+  color: #333;
+  border: 2px solid #FFB300;
+}
+
+/* Mavi Toast - Kelime Anlamı */
+.toast-blue {
+  background: linear-gradient(135deg, #4A90E2, #357ABD);
+  color: white;
+  border: 2px solid #2E6DA4;
+}
+
+/* Yeşil Toast - Başarı */
+.toast-success {
+  background: linear-gradient(135deg, #4CAF50, #45A049);
+  color: white;
+  border: 2px solid #388E3C;
+}
+
+/* Kırmızı Toast - Hata */
+.toast-error {
+  background: linear-gradient(135deg, #F44336, #E53935);
+  color: white;
+  border: 2px solid #D32F2F;
+}
+
+/* Gri Toast - Bilgi */
+.toast-info {
+  background: linear-gradient(135deg, #9E9E9E, #757575);
+  color: white;
+  border: 2px solid #616161;
+}

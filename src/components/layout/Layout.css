@@ -1,0 +1,331 @@
+/* Layout Styles */
+.layout {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+}
+
+.layout-header {
+  background: rgba(255, 255, 255, 0.95);
+  backdrop-filter: blur(10px);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.2);
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
+  position: sticky;
+  top: 0;
+  z-index: 1000;
+}
+
+.header-content {
+  max-width: 1400px;
+  margin: 0 auto;
+  padding: 0 20px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 70px;
+}
+
+.logo-section {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+}
+
+.app-title {
+  font-size: 1.8rem;
+  font-weight: 700;
+  color: #2c3e50;
+  margin: 0;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  background: linear-gradient(135deg, #3498db, #e74c3c);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.app-title:hover {
+  transform: scale(1.05);
+}
+
+.game-status {
+  background: linear-gradient(135deg, #e74c3c, #c0392b);
+  color: white;
+  padding: 6px 12px;
+  border-radius: 20px;
+  font-size: 0.9rem;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  animation: pulse 2s infinite;
+}
+
+@keyframes pulse {
+  0% { opacity: 1; }
+  50% { opacity: 0.7; }
+  100% { opacity: 1; }
+}
+
+.main-nav {
+  display: flex;
+  gap: 10px;
+}
+
+.nav-button {
+  background: transparent;
+  border: 2px solid #3498db;
+  color: #3498db;
+  padding: 8px 16px;
+  border-radius: 25px;
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  position: relative;
+  overflow: hidden;
+}
+
+.nav-button:hover:not(:disabled) {
+  background: #3498db;
+  color: white;
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(52, 152, 219, 0.3);
+}
+
+.nav-button.active {
+  background: linear-gradient(135deg, #3498db, #2980b9);
+  color: white;
+  border-color: #2980b9;
+}
+
+.nav-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  border-color: #bdc3c7;
+  color: #bdc3c7;
+}
+
+.user-section {
+  display: flex;
+  align-items: center;
+  gap: 15px;
+}
+
+.user-info {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+}
+
+.username {
+  font-size: 1rem;
+  font-weight: 600;
+  color: #2c3e50;
+}
+
+.user-stats {
+  display: flex;
+  gap: 10px;
+  font-size: 0.8rem;
+  color: #7f8c8d;
+}
+
+.logout-button {
+  background: linear-gradient(135deg, #e74c3c, #c0392b);
+  color: white;
+  border: none;
+  padding: 10px 15px;
+  border-radius: 20px;
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.3s ease;
+}
+
+.logout-button:hover {
+  background: linear-gradient(135deg, #c0392b, #a93226);
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(231, 76, 60, 0.3);
+}
+
+.layout-main {
+  flex: 1;
+  padding: 20px;
+  max-width: 1400px;
+  margin: 0 auto;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.layout-footer {
+  background: rgba(0, 0, 0, 0.1);
+  backdrop-filter: blur(5px);
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  padding: 15px 0;
+  margin-top: auto;
+}
+
+.footer-content {
+  max-width: 1400px;
+  margin: 0 auto;
+  padding: 0 20px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  color: rgba(255, 255, 255, 0.8);
+  font-size: 0.9rem;
+}
+
+.footer-links {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+
+/* Loading States */
+.loading-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+}
+
+.loading-spinner {
+  font-size: 48px;
+  animation: spin 2s linear infinite;
+  margin-bottom: 20px;
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+/* Responsive Design */
+@media (max-width: 1024px) {
+  .header-content {
+    padding: 0 15px;
+    height: 65px;
+  }
+  
+  .app-title {
+    font-size: 1.5rem;
+  }
+  
+  .main-nav {
+    gap: 8px;
+  }
+  
+  .nav-button {
+    padding: 6px 12px;
+    font-size: 0.85rem;
+  }
+  
+  .layout-main {
+    padding: 15px;
+  }
+}
+
+@media (max-width: 768px) {
+  .header-content {
+    flex-direction: column;
+    height: auto;
+    padding: 10px 15px;
+    gap: 10px;
+  }
+  
+  .logo-section {
+    width: 100%;
+    justify-content: space-between;
+  }
+  
+  .app-title {
+    font-size: 1.3rem;
+  }
+  
+  .game-status {
+    font-size: 0.8rem;
+    padding: 4px 8px;
+  }
+  
+  .main-nav {
+    width: 100%;
+    justify-content: space-around;
+    order: 2;
+  }
+  
+  .nav-button {
+    flex: 1;
+    text-align: center;
+    padding: 8px 8px;
+    font-size: 0.8rem;
+  }
+  
+  .user-section {
+    width: 100%;
+    justify-content: space-between;
+    order: 1;
+  }
+  
+  .user-info {
+    align-items: flex-start;
+  }
+  
+  .username {
+    font-size: 0.9rem;
+  }
+  
+  .user-stats {
+    font-size: 0.75rem;
+  }
+  
+  .logout-button {
+    padding: 8px 12px;
+    font-size: 0.8rem;
+  }
+  
+  .layout-main {
+    padding: 10px;
+  }
+  
+  .footer-content {
+    flex-direction: column;
+    gap: 5px;
+    text-align: center;
+    font-size: 0.8rem;
+  }
+}
+
+@media (max-width: 480px) {
+  .header-content {
+    padding: 8px 10px;
+  }
+  
+  .app-title {
+    font-size: 1.1rem;
+  }
+  
+  .nav-button {
+    font-size: 0.75rem;
+    padding: 6px 6px;
+  }
+  
+  .username {
+    font-size: 0.8rem;
+  }
+  
+  .user-stats {
+    font-size: 0.7rem;
+    gap: 5px;
+  }
+  
+  .layout-main {
+    padding: 8px;
+  }
+}

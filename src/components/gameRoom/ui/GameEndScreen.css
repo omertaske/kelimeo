@@ -1,0 +1,370 @@
+.game-end-screen {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  z-index: 10001;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  animation: fadeIn 0.5s ease-out;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.game-end-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: rgba(0, 0, 0, 0.85);
+  backdrop-filter: blur(10px);
+}
+
+.game-end-content {
+  position: relative;
+  z-index: 2;
+  text-align: center;
+  padding: 40px;
+  max-width: 600px;
+  animation: slideUp 0.6s ease-out;
+}
+
+@keyframes slideUp {
+  from {
+    transform: translateY(50px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+/* Galibiyet Stili */
+.victory .trophy-animation {
+  margin-bottom: 30px;
+  position: relative;
+  display: inline-block;
+  animation: bounce 1s infinite;
+}
+
+@keyframes bounce {
+  0%, 100% {
+    transform: translateY(0) scale(1);
+  }
+  50% {
+    transform: translateY(-20px) scale(1.1);
+  }
+}
+
+.trophy-icon {
+  font-size: 120px;
+  display: block;
+  filter: drop-shadow(0 10px 30px rgba(255, 215, 0, 0.6));
+}
+
+.trophy-glow {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 150px;
+  height: 150px;
+  background: radial-gradient(circle, rgba(255, 215, 0, 0.4), transparent);
+  border-radius: 50%;
+  animation: pulse 2s infinite;
+}
+
+@keyframes pulse {
+  0%, 100% {
+    transform: translate(-50%, -50%) scale(1);
+    opacity: 1;
+  }
+  50% {
+    transform: translate(-50%, -50%) scale(1.5);
+    opacity: 0.5;
+  }
+}
+
+.victory-title {
+  font-size: 64px;
+  font-weight: 900;
+  background: linear-gradient(45deg, #FFD700, #FFA500, #FFD700);
+  background-size: 200% 200%;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  margin: 20px 0;
+  animation: gradient 3s ease infinite;
+  text-shadow: 0 0 30px rgba(255, 215, 0, 0.5);
+}
+
+@keyframes gradient {
+  0% {
+    background-position: 0% 50%;
+  }
+  50% {
+    background-position: 100% 50%;
+  }
+  100% {
+    background-position: 0% 50%;
+  }
+}
+
+.sparkle {
+  display: inline-block;
+  animation: sparkle 1.5s infinite;
+}
+
+@keyframes sparkle {
+  0%, 100% {
+    transform: scale(1) rotate(0deg);
+    opacity: 1;
+  }
+  50% {
+    transform: scale(1.3) rotate(180deg);
+    opacity: 0.7;
+  }
+}
+
+.victory-subtitle {
+  font-size: 24px;
+  color: #FFD700;
+  margin-bottom: 40px;
+  font-weight: 600;
+}
+
+/* Mağlubiyet Stili */
+.defeat .defeat-animation {
+  margin-bottom: 30px;
+  animation: shake 0.5s;
+}
+
+@keyframes shake {
+  0%, 100% {
+    transform: translateX(0);
+  }
+  25% {
+    transform: translateX(-10px);
+  }
+  75% {
+    transform: translateX(10px);
+  }
+}
+
+.defeat-icon {
+  font-size: 120px;
+  display: block;
+  filter: grayscale(0.3);
+}
+
+.defeat-title {
+  font-size: 56px;
+  font-weight: 900;
+  color: #E74C3C;
+  margin: 20px 0;
+  text-shadow: 0 5px 15px rgba(231, 76, 60, 0.3);
+}
+
+.defeat-subtitle {
+  font-size: 20px;
+  color: #95A5A6;
+  margin-bottom: 40px;
+}
+
+.motivation-text {
+  font-size: 18px;
+  color: #3498DB;
+  margin-top: 20px;
+  padding: 15px;
+  background: rgba(52, 152, 219, 0.1);
+  border-radius: 10px;
+  border: 2px solid rgba(52, 152, 219, 0.3);
+}
+
+/* Skor Gösterimi */
+.score-display {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 40px;
+  margin: 40px 0;
+  padding: 30px;
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 20px;
+  backdrop-filter: blur(10px);
+}
+
+.score-item {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.score-label {
+  font-size: 16px;
+  color: #BDC3C7;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+
+.score-value {
+  font-size: 56px;
+  font-weight: 900;
+}
+
+.score-value.winner {
+  color: #2ECC71;
+  text-shadow: 0 0 20px rgba(46, 204, 113, 0.5);
+}
+
+.score-value.loser {
+  color: #E74C3C;
+  text-shadow: 0 0 20px rgba(231, 76, 60, 0.3);
+}
+
+.vs-divider {
+  font-size: 32px;
+  font-weight: 900;
+  color: #7F8C8D;
+}
+
+/* Yıldızlar */
+.stars-rating {
+  margin: 30px 0;
+}
+
+.star {
+  font-size: 48px;
+  display: inline-block;
+  margin: 0 5px;
+  animation: starPop 0.6s ease-out;
+}
+
+.star:nth-child(1) {
+  animation-delay: 0.2s;
+}
+
+.star:nth-child(2) {
+  animation-delay: 0.4s;
+}
+
+.star:nth-child(3) {
+  animation-delay: 0.6s;
+}
+
+@keyframes starPop {
+  0% {
+    transform: scale(0);
+    opacity: 0;
+  }
+  50% {
+    transform: scale(1.2);
+  }
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+/* Butonlar */
+.game-end-buttons {
+  display: flex;
+  gap: 20px;
+  justify-content: center;
+  margin-top: 40px;
+}
+
+.end-button {
+  padding: 16px 40px;
+  font-size: 18px;
+  font-weight: 700;
+  border: none;
+  border-radius: 12px;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+
+.primary-button {
+  background: linear-gradient(135deg, #3498DB, #2980B9);
+  color: white;
+  box-shadow: 0 8px 20px rgba(52, 152, 219, 0.4);
+}
+
+.primary-button:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 12px 30px rgba(52, 152, 219, 0.6);
+}
+
+.secondary-button {
+  background: linear-gradient(135deg, #95A5A6, #7F8C8D);
+  color: white;
+  box-shadow: 0 8px 20px rgba(149, 165, 166, 0.4);
+}
+
+.secondary-button:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 12px 30px rgba(149, 165, 166, 0.6);
+}
+
+/* Konfeti Animasyonu */
+.confetti-container {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  overflow: hidden;
+}
+
+.confetti-piece {
+  position: absolute;
+  width: 10px;
+  height: 10px;
+  top: -10px;
+  border-radius: 50%;
+  animation: confetti-fall linear forwards;
+}
+
+@keyframes confetti-fall {
+  to {
+    transform: translateY(100vh) rotate(720deg);
+    opacity: 0;
+  }
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+  .victory-title, .defeat-title {
+    font-size: 40px;
+  }
+
+  .trophy-icon, .defeat-icon {
+    font-size: 80px;
+  }
+
+  .score-value {
+    font-size: 40px;
+  }
+
+  .game-end-buttons {
+    flex-direction: column;
+  }
+
+  .end-button {
+    width: 100%;
+  }
+}

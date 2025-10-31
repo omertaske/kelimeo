@@ -1,0 +1,131 @@
+/* BlankLetterModal.css */
+.blank-modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.75);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 10000;
+  animation: fadeIn 0.2s ease;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.blank-modal-content {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  border-radius: 20px;
+  padding: 30px;
+  max-width: 500px;
+  width: 90%;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+  animation: slideUp 0.3s ease;
+}
+
+@keyframes slideUp {
+  from {
+    opacity: 0;
+    transform: translateY(50px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.blank-modal-title {
+  color: white;
+  font-size: 24px;
+  font-weight: bold;
+  margin: 0 0 10px 0;
+  text-align: center;
+  text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.3);
+}
+
+.blank-modal-desc {
+  color: rgba(255, 255, 255, 0.9);
+  font-size: 16px;
+  text-align: center;
+  margin: 0 0 25px 0;
+}
+
+.blank-letter-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(50px, 1fr));
+  gap: 10px;
+  margin-bottom: 20px;
+}
+
+.blank-letter-btn {
+  background: white;
+  border: 3px solid transparent;
+  border-radius: 10px;
+  padding: 15px;
+  font-size: 20px;
+  font-weight: bold;
+  color: #667eea;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+}
+
+.blank-letter-btn:hover {
+  background: #f0f0f0;
+  border-color: #ffd700;
+  transform: translateY(-3px) scale(1.05);
+  box-shadow: 0 6px 12px rgba(0, 0, 0, 0.3);
+}
+
+.blank-letter-btn:active {
+  transform: translateY(0) scale(0.98);
+}
+
+.blank-cancel-btn {
+  width: 100%;
+  background: rgba(255, 255, 255, 0.2);
+  border: 2px solid white;
+  border-radius: 10px;
+  padding: 12px;
+  color: white;
+  font-size: 16px;
+  font-weight: bold;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.blank-cancel-btn:hover {
+  background: rgba(255, 255, 255, 0.3);
+  transform: scale(1.02);
+}
+
+/* Mobile responsive */
+@media (max-width: 600px) {
+  .blank-modal-content {
+    padding: 20px;
+    max-width: 350px;
+  }
+  
+  .blank-letter-grid {
+    grid-template-columns: repeat(auto-fill, minmax(40px, 1fr));
+    gap: 8px;
+  }
+  
+  .blank-letter-btn {
+    padding: 12px;
+    font-size: 18px;
+  }
+  
+  .blank-modal-title {
+    font-size: 20px;
+  }
+  
+  .blank-modal-desc {
+    font-size: 14px;
+  }
+}

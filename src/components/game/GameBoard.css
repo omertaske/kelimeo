@@ -1,0 +1,686 @@
+/* Scrabble Board Styles */
+.game-board-container {
+  width: 100%;
+  max-width: 800px;
+  margin: 0 auto;
+  padding: 20px;
+  position: relative;
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.game-board-container:fullscreen {
+  max-width: 90vw;
+  background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
+  padding: 40px;
+}
+
+.game-board-container:fullscreen .game-board {
+  max-width: 80vh;
+  max-height: 80vh;
+}
+
+.game-board {
+  display: grid;
+  gap: 2px;
+  background: #2c3e50;
+  padding: 10px;
+  border-radius: 8px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+  aspect-ratio: 1;
+  width: min(90vw, 90vh);
+  height: min(90vw, 90vh);
+  max-width: 700px;
+  max-height: 700px;
+}
+
+.board-cell {
+  aspect-ratio: 1 / 1;
+  min-width: 0;
+  min-height: 0;
+  background: linear-gradient(135deg, #f5deb3 0%, #d2b48c 100%);
+  border: 2px solid #8b7355;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: clamp(0.7rem, 2vw, 1.2rem);
+  font-weight: bold;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  position: relative;
+  user-select: none;
+  overflow: hidden;
+}
+
+.board-cell:hover {
+  transform: scale(1.05);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+  z-index: 10;
+}
+
+.board-cell.filled {
+  background: linear-gradient(135deg, #fff8dc 0%, #f5deb3 100%);
+  cursor: default;
+}
+
+.board-cell.player-tile {
+  background: linear-gradient(135deg, #4CAF50 0%, #45a049 100%);
+  color: white;
+  border-color: #2e7d32;
+}
+
+.board-cell.opponent-tile {
+  background: linear-gradient(135deg, #f44336 0%, #da190b 100%);
+  color: white;
+  border-color: #b71c1c;
+}
+
+.board-cell.placed {
+  background: linear-gradient(135deg, #2196F3 0%, #1976D2 100%);
+  color: white;
+  border-color: #0d47a1;
+  animation: pulse 0.5s ease;
+}
+
+/* Blank Joker Tiles */
+.board-cell.blank-tile {
+  position: relative;
+  font-style: italic;
+  opacity: 0.9;
+}
+
+.board-cell.blank-tile::after {
+  content: '🃏';
+  position: absolute;
+  bottom: 2px;
+  right: 2px;
+  font-size: 0.5em;
+  opacity: 0.6;
+}
+
+.board-cell.player-tile.blank-tile {
+  background: linear-gradient(135deg, #66BB6A 0%, #4CAF50 100%);
+  border: 2px dashed #2e7d32;
+}
+
+.board-cell.opponent-tile.blank-tile {
+  background: linear-gradient(135deg, #EF5350 0%, #F44336 100%);
+  border: 2px dashed #b71c1c;
+}
+
+/* Premium Squares */
+.board-cell.center-cell {
+  background: linear-gradient(135deg, #ff9800 0%, #f57c00 100%);
+  color: white;
+}
+
+.board-cell.DW {
+  background: linear-gradient(135deg, #e91e63 0%, #c2185b 100%);
+  color: white;
+}
+
+.board-cell.TW {
+  background: linear-gradient(135deg, #f44336 0%, #c62828 100%);
+  color: white;
+}
+
+.board-cell.DL {
+  background: linear-gradient(135deg, #64b5f6 0%, #42a5f5 100%);
+  color: white;
+}
+
+.board-cell.TL {
+  background: linear-gradient(135deg, #1976d2 0%, #1565c0 100%);
+  color: white;
+}
+
+.cell-letter {
+  font-size: clamp(1rem, 3vw, 1.8rem);
+  text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.3);
+  z-index: 2;
+}
+
+.cell-multiplier {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  font-size: clamp(0.5rem, 1.2vw, 0.7rem);
+  font-weight: bold;
+  opacity: 0.8;
+  z-index: 1;
+}
+
+.cell-score {
+  position: absolute;
+  bottom: 2px;
+  right: 2px;
+  font-size: clamp(0.4rem, 1vw, 0.6rem);
+  font-weight: normal;
+  opacity: 0.7;
+  z-index: 1;
+}
+
+.center-star {
+  font-size: clamp(1.2rem, 3vw, 2rem);
+  animation: rotate 4s linear infinite;
+}
+
+/* Letter Rack */
+.letter-rack {
+  position: fixed;
+  bottom: 20px;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 20px 30px;
+  background: rgba(52, 73, 94, 0.95);
+  backdrop-filter: blur(10px);
+  border-radius: 20px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+  border: 2px solid rgba(255, 255, 255, 0.1);
+  z-index: 1000;
+  max-width: 90vw;
+  user-select: none;
+}
+
+.letter-rack.dragging {
+  cursor: grabbing;
+  opacity: 0.9;
+}
+
+.letter-rack-title {
+  color: white;
+  font-size: 1rem;
+  margin-bottom: 12px;
+  text-align: center;
+  font-weight: 600;
+  text-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
+}
+
+.letter-tiles {
+  display: flex;
+  gap: 12px;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+
+.rack-controls {
+  display: flex;
+  gap: 8px;
+  justify-content: center;
+  margin-top: 15px;
+  padding-top: 15px;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.rack-controls .control-button {
+  padding: 8px 16px;
+  font-size: 0.9rem;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  font-weight: 600;
+  transition: all 0.2s ease;
+}
+
+.rack-controls .control-button.primary {
+  background: linear-gradient(135deg, #4CAF50 0%, #45a049 100%);
+  color: white;
+}
+
+.rack-controls .control-button.primary:hover:not(:disabled) {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(76, 175, 80, 0.4);
+}
+
+.rack-controls .control-button.secondary {
+  background: linear-gradient(135deg, #2196F3 0%, #1976D2 100%);
+  color: white;
+}
+
+.rack-controls .control-button.secondary:hover:not(:disabled) {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(33, 150, 243, 0.4);
+}
+
+.rack-controls .control-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.letter-tile {
+  width: 60px;
+  height: 60px;
+  background: linear-gradient(135deg, #fff8dc 0%, #f5deb3 100%);
+  border: 3px solid #8b7355;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.8rem;
+  font-weight: bold;
+  cursor: grab;
+  transition: all 0.2s ease;
+  position: relative;
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+}
+
+.letter-tile:hover {
+  transform: translateY(-5px) scale(1.1);
+  box-shadow: 0 8px 16px rgba(0, 0, 0, 0.3);
+}
+
+.letter-tile:active {
+  cursor: grabbing;
+  transform: scale(0.95);
+}
+
+.letter-tile.dragging {
+  position: fixed;
+  z-index: 10000;
+  pointer-events: none;
+  opacity: 0.8;
+  transform: scale(1.2);
+  box-shadow: 0 12px 24px rgba(0, 0, 0, 0.5);
+}
+
+.letter-tile.selected {
+  background: linear-gradient(135deg, #4CAF50 0%, #45a049 100%);
+  color: white;
+  border-color: #2e7d32;
+}
+
+.letter-tile.disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.letter-tile-score {
+  position: absolute;
+  bottom: 3px;
+  right: 5px;
+  font-size: 0.8rem;
+  font-weight: normal;
+  opacity: 0.7;
+}
+
+/* Game Controls */
+.game-controls {
+  position: fixed;
+  bottom: 100px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  gap: 10px;
+  justify-content: center;
+  flex-wrap: wrap;
+  padding: 15px;
+  background: rgba(44, 62, 80, 0.95);
+  backdrop-filter: blur(10px);
+  border-radius: 15px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+  border: 2px solid rgba(255, 255, 255, 0.1);
+  z-index: 999;
+  max-width: 90vw;
+}
+
+/* Fullscreen Toggle Button */
+.fullscreen-toggle {
+  position: fixed;
+  top: 20px;
+  right: 20px;
+  width: 50px;
+  height: 50px;
+  border: none;
+  border-radius: 12px;
+  background: rgba(52, 152, 219, 0.9);
+  backdrop-filter: blur(10px);
+  color: white;
+  font-size: 1.5rem;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+  z-index: 1001;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.fullscreen-toggle:hover {
+  background: rgba(52, 152, 219, 1);
+  transform: scale(1.1);
+  box-shadow: 0 6px 20px rgba(52, 152, 219, 0.5);
+}
+
+.fullscreen-toggle:active {
+  transform: scale(0.95);
+}
+
+.control-button {
+  padding: 12px 24px;
+  border: none;
+  border-radius: 8px;
+  font-size: 1rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+}
+
+.control-button.primary {
+  background: linear-gradient(135deg, #4CAF50 0%, #45a049 100%);
+  color: white;
+}
+
+.control-button.secondary {
+  background: linear-gradient(135deg, #2196F3 0%, #1976D2 100%);
+  color: white;
+}
+
+.control-button.danger {
+  background: linear-gradient(135deg, #f44336 0%, #da190b 100%);
+  color: white;
+}
+
+.control-button.warning {
+  background: linear-gradient(135deg, #ff9800 0%, #f57c00 100%);
+  color: white;
+}
+
+.control-button:hover:not(:disabled) {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.3);
+}
+
+.control-button:active:not(:disabled) {
+  transform: translateY(0);
+}
+
+.control-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Move Info */
+.move-info {
+  position: fixed;
+  top: 20px;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 12px 24px;
+  background: rgba(255, 248, 220, 0.95);
+  backdrop-filter: blur(10px);
+  border-radius: 12px;
+  border: 2px solid rgba(139, 115, 85, 0.3);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+  z-index: 1000;
+  animation: slideDown 0.3s ease;
+}
+
+@keyframes slideDown {
+  from {
+    opacity: 0;
+    transform: translateX(-50%) translateY(-20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0);
+  }
+}
+
+.move-info h4 {
+  margin: 0;
+  color: #2c3e50;
+  font-size: 1rem;
+  text-align: center;
+}
+
+.move-info p {
+  margin: 0;
+  color: #2c3e50;
+  font-weight: 600;
+  text-align: center;
+  font-size: 1rem;
+}
+
+.move-details {
+  display: flex;
+  gap: 20px;
+  flex-wrap: wrap;
+}
+
+.move-detail-item {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.move-detail-item strong {
+  color: #2c3e50;
+}
+
+/* Last Move Highlight - Turuncu Işıklı */
+.last-move-highlight {
+  position: relative;
+  animation: lastMoveGlow 2s ease-in-out infinite;
+  box-shadow: 
+    0 0 15px rgba(255, 152, 0, 0.6),
+    0 0 25px rgba(255, 152, 0, 0.4),
+    inset 0 0 15px rgba(255, 152, 0, 0.2);
+  border: 2px solid rgba(255, 152, 0, 0.8) !important;
+  z-index: 5;
+}
+
+.last-move-highlight::before {
+  content: '';
+  position: absolute;
+  inset: -4px;
+  background: rgba(255, 152, 0, 0.15);
+  border-radius: 6px;
+  filter: blur(8px);
+  z-index: -1;
+  animation: pulseGlow 2s ease-in-out infinite;
+}
+
+@keyframes lastMoveGlow {
+  0%, 100% {
+    box-shadow: 
+      0 0 15px rgba(255, 152, 0, 0.6),
+      0 0 25px rgba(255, 152, 0, 0.4),
+      inset 0 0 15px rgba(255, 152, 0, 0.2);
+  }
+  50% {
+    box-shadow: 
+      0 0 20px rgba(255, 152, 0, 0.8),
+      0 0 35px rgba(255, 152, 0, 0.6),
+      inset 0 0 20px rgba(255, 152, 0, 0.3);
+  }
+}
+
+@keyframes pulseGlow {
+  0%, 100% {
+    opacity: 0.6;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.05);
+  }
+}
+
+/* Animations */
+@keyframes pulse {
+  0%, 100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.1);
+  }
+}
+
+@keyframes rotate {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* Eski highlight animasyonu kaldırıldı - lastMoveGlow kullanılıyor */
+
+/* Word Info Button */
+.word-info-button {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 18px;
+  height: 18px;
+  border: none;
+  border-radius: 50%;
+  background: rgba(33, 150, 243, 0.9);
+  color: white;
+  font-size: 10px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s ease;
+  z-index: 100;
+  padding: 0;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
+}
+
+.word-info-button:hover {
+  background: rgba(33, 150, 243, 1);
+  transform: scale(1.2);
+  box-shadow: 0 3px 6px rgba(33, 150, 243, 0.5);
+}
+
+/* Word Meaning Tooltip */
+.word-meaning-tooltip {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  max-width: 500px;
+  width: 90%;
+  padding: 30px;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  border-radius: 20px;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+  z-index: 10000;
+  color: white;
+  animation: tooltipFadeIn 0.3s ease;
+}
+
+.word-meaning-tooltip h3 {
+  margin: 0 0 15px 0;
+  font-size: 1.8rem;
+  text-align: center;
+  text-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
+}
+
+.word-meaning-tooltip p {
+  margin: 0 0 15px 0;
+  font-size: 1.1rem;
+  line-height: 1.6;
+  text-align: center;
+  background: rgba(255, 255, 255, 0.1);
+  padding: 15px;
+  border-radius: 10px;
+}
+
+.word-meaning-tooltip small {
+  display: block;
+  text-align: center;
+  opacity: 0.8;
+  font-style: italic;
+}
+
+.tooltip-close {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  width: 30px;
+  height: 30px;
+  border: none;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.2);
+  color: white;
+  font-size: 1.2rem;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.tooltip-close:hover {
+  background: rgba(255, 255, 255, 0.3);
+  transform: rotate(90deg);
+}
+
+@keyframes tooltipFadeIn {
+  from {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(0.8);
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1);
+  }
+}
+
+/* Responsive Design */
+@media (max-width: 768px) {
+  .game-board-container {
+    padding: 10px;
+  }
+
+  .game-board {
+    padding: 5px;
+    gap: 1px;
+  }
+
+  .letter-rack {
+    bottom: 10px;
+    padding: 10px 15px;
+    max-width: 95vw;
+  }
+
+  .letter-tile {
+    width: 40px;
+    height: 40px;
+    font-size: 1.2rem;
+  }
+
+  .game-controls {
+    bottom: 80px;
+    gap: 8px;
+    padding: 10px;
+    max-width: 95vw;
+  }
+
+  .control-button {
+    padding: 10px 16px;
+    font-size: 0.9rem;
+  }
+
+  .fullscreen-toggle {
+    width: 40px;
+    height: 40px;
+    font-size: 1.2rem;
+    top: 10px;
+    right: 10px;
+  }
+
+  .move-info {
+    top: 10px;
+    padding: 8px 16px;
+    font-size: 0.9rem;
+    max-width: 90vw;
+  }
+}
