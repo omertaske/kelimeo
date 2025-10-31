@@ -1,0 +1,51 @@
+/* Game Lobby Styles */
+.game-lobby {
+  width: 100%;
+  max-width: 1400px;
+  margin: 0 auto;
+  padding: 20px;
+  min-height: calc(100vh - 200px);
+}
+
+.lobby-content {
+  display: grid;
+  grid-template-columns: 1fr 400px;
+  gap: 30px;
+  margin-top: 20px;
+}
+
+.match-section {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  border-radius: 20px;
+  padding: 30px;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
+  color: white;
+}
+
+.match-section h3 {
+  margin: 0 0 20px 0;
+  font-size: 1.8rem;
+  text-align: center;
+  text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.3);
+}
+
+/* Responsive */
+@media (max-width: 1024px) {
+  .lobby-content {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 768px) {
+  .game-lobby {
+    padding: 10px;
+  }
+
+  .match-section {
+    padding: 20px;
+  }
+
+  .match-section h3 {
+    font-size: 1.5rem;
+  }
+}
