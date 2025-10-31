@@ -39,14 +39,16 @@ const writeStorage = (key, value) => {
 const normalizeUserShape = (rawUser) => {
   if (!rawUser) return null;
   
-  // Username kontrolü - eksikse null döndür
-  if (!rawUser.username || rawUser.username.trim() === '') {
-    console.warn('Invalid user data: missing username', rawUser);
+  // Username veya name alanından username oluştur
+  const username = rawUser.username || rawUser.name;
+  if (!username || username.trim() === '') {
+    console.warn('Invalid user data: missing username/name', rawUser);
     return null;
   }
 
   const merged = {
     ...rawUser,
+    username, // name alanından da username oluşturabilir
     gamesWon: rawUser.gamesWon ?? rawUser.wins ?? 0,
     gamesLost: rawUser.gamesLost ?? rawUser.losses ?? 0,
     totalScore: rawUser.totalScore ?? 0,
