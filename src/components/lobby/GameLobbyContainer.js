@@ -109,11 +109,15 @@ const GameLobby = ({ currentUser, onStartGame, onLogout }) => {
 
     setWaitingForMatch(true);
     
+    console.log('🎮 Matchmaking başlatılıyor...', { userId: currentUser.id, boardId: 'classic' });
+    
     // Matchmaking servisi ile oyun bul veya oluştur
     const result = await findOrCreateGame({
       userId: currentUser.id,
       boardId: 'classic', // Varsayılan tahta
     });
+
+    console.log('📊 Matchmaking sonucu:', result);
 
     if (!result.success) {
       alert('Eşleşme başarısız! Lütfen tekrar deneyin.');
@@ -125,7 +129,7 @@ const GameLobby = ({ currentUser, onStartGame, onLogout }) => {
 
     if (result.isWaiting) {
       // Bekleyen oyun oluşturduk, rakip bekleniyor
-      console.log('Rakip bekleniyor...');
+      console.log('⏳ Yeni oyun oluşturuldu, rakip bekleniyor...', { gameId: result.game.id });
       // Polling başlat - rakip geldiğinde otomatik devam edecek
       pollForOpponent(result.game.id);
     } else {
@@ -136,39 +140,33 @@ const GameLobby = ({ currentUser, onStartGame, onLogout }) => {
         username: 'Rakip',
       };
       setSelectedOpponent(opponent);
-      console.log('Rakip bulundu:', opponent.username);
+      console.log('✅ Mevcut oyuna katıldı! Rakip:', opponent.username, { role: result.role });
     }
   };
 
   const pollForOpponent = (gameId) => {
-    let opponentFound = false;
+    console.log(`🔍 Rakip araması başladı - Game ID: ${gameId}`);
     
     const pollInterval = setInterval(async () => {
       const { fetchGameState } = await import('../../services/gameService');
       const { success, game } = await fetchGameState(gameId);
       
+      console.log('⏱️ Rakip kontrolü yapılıyor...', { player2Id: game?.player2Id });
+      
       if (success && game?.player2Id) {
         // Rakip katıldı!
-        opponentFound = true;
         clearInterval(pollInterval);
         const opponent = onlineUsers.find(u => u.id === game.player2Id) || {
           id: game.player2Id,
           username: 'Rakip',
         };
         setSelectedOpponent(opponent);
-        console.log('Rakip katildi:', opponent.username);
+        console.log('✅ Rakip katildi:', opponent.username, `(ID: ${opponent.id})`);
       }
-    }, 1000); // 1 saniyede bir kontrol
+    }, 2000); // 2 saniyede bir kontrol (server yükünü azalt)
 
-    // 30 saniye sonra timeout
-    setTimeout(() => {
-      clearInterval(pollInterval);
-      if (!opponentFound) {
-        setWaitingForMatch(false);
-        setSelectedOpponent(null);
-        alert('Rakip bulunamadı, lütfen tekrar deneyin.');
-      }
-    }, 30000);
+    // Timeout kaldırıldı - sonsuz bekleme
+    // Kullanıcı manuel iptal edebilir
   };
 
   const challengeUser = async (opponent) => {

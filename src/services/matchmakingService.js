@@ -13,10 +13,15 @@ import { createGameState, GAME_STATUS } from './gameStateHelper';
  */
 export const findWaitingGame = async (boardId) => {
   try {
+    console.log('🔍 Bekleyen oyun aranıyor...', { boardId });
+    
     // Tüm oyunları çek
     const games = await apiClient.get('/games');
     
+    console.log('📋 API\'den gelen oyunlar:', games?.length || 0, 'adet');
+    
     if (!games || games.length === 0) {
+      console.log('❌ Hiç oyun yok');
       return { success: true, game: null };
     }
 
@@ -27,7 +32,13 @@ export const findWaitingGame = async (boardId) => {
       !game.player2Id // İkinci oyuncu henüz katılmamış
     );
 
+    console.log('⏳ Bekleyen oyunlar:', waitingGames.length, 'adet');
+    waitingGames.forEach(g => {
+      console.log('  - Game ID:', g.id, '| Player1:', g.player1Id, '| BoardId:', g.boardId);
+    });
+
     if (waitingGames.length === 0) {
+      console.log('❌ Bekleyen oyun bulunamadı');
       return { success: true, game: null };
     }
 
@@ -36,9 +47,10 @@ export const findWaitingGame = async (boardId) => {
       new Date(b.createdAt) - new Date(a.createdAt)
     )[0];
 
+    console.log('✅ Bekleyen oyun bulundu:', latestGame.id);
     return { success: true, game: latestGame };
   } catch (error) {
-    console.error('findWaitingGame error:', error);
+    console.error('❌ findWaitingGame error:', error);
     return { success: false, error: error.message };
   }
 };
@@ -51,6 +63,8 @@ export const findWaitingGame = async (boardId) => {
  */
 export const joinWaitingGame = async (gameId, player2Id) => {
   try {
+    console.log('🎯 Oyuna katılma denemesi...', { gameId, player2Id });
+    
     // Oyunu çek
     const game = await apiClient.get(`/games/${gameId}`);
     
@@ -59,6 +73,7 @@ export const joinWaitingGame = async (gameId, player2Id) => {
     }
 
     if (game.player2Id) {
+      console.log('⚠️ Bu oyun dolu');
       throw new Error('Bu oyun dolu');
     }
 
@@ -71,7 +86,7 @@ export const joinWaitingGame = async (gameId, player2Id) => {
 
     const updatedGame = await apiClient.put(`/games/${gameId}`, updates);
     
-    console.log('Bekleyen oyuna katildi:', {
+    console.log('✅ Bekleyen oyuna katildi:', {
       gameId,
       player1: game.player1Id,
       player2: player2Id,
@@ -79,7 +94,7 @@ export const joinWaitingGame = async (gameId, player2Id) => {
 
     return { success: true, game: updatedGame };
   } catch (error) {
-    console.error('joinWaitingGame error:', error);
+    console.error('❌ joinWaitingGame error:', error);
     return { success: false, error: error.message };
   }
 };
@@ -91,6 +106,8 @@ export const joinWaitingGame = async (gameId, player2Id) => {
  */
 export const findOrCreateGame = async ({ userId, boardId }) => {
   try {
+    console.log('🎮 findOrCreateGame başlatıldı', { userId, boardId });
+    
     // Önce bekleyen oyun ara
     const { success: findSuccess, game: waitingGame } = await findWaitingGame(boardId);
 
@@ -102,7 +119,7 @@ export const findOrCreateGame = async ({ userId, boardId }) => {
     if (waitingGame) {
       // Kendi oluşturduğun oyuna katılmaya çalışma
       if (waitingGame.player1Id === userId) {
-        console.log('Kendi oyunun zaten var, bekleniyor...');
+        console.log('💡 Kendi oyunun zaten var, bekleniyor...');
         return {
           success: true,
           game: waitingGame,
@@ -111,6 +128,8 @@ export const findOrCreateGame = async ({ userId, boardId }) => {
         };
       }
 
+      console.log('🔗 Başka birinin oyununa katılıyor...', waitingGame.id);
+      
       // Başka birinin oyununa katıl
       const { success: joinSuccess, game: joinedGame } = await joinWaitingGame(
         waitingGame.id,
@@ -121,7 +140,7 @@ export const findOrCreateGame = async ({ userId, boardId }) => {
         throw new Error('Oyuna katılamadı');
       }
 
-      console.log('Mevcut oyuna katildi');
+      console.log('✅ Mevcut oyuna başarıyla katıldı!');
       return {
         success: true,
         game: joinedGame,
@@ -131,6 +150,8 @@ export const findOrCreateGame = async ({ userId, boardId }) => {
     }
 
     // Bekleyen oyun yoksa yeni oyun oluştur
+    console.log('➕ Yeni oyun oluşturuluyor...');
+    
     const gameId = `game_${Date.now()}_${userId}`;
     const newGameState = createGameState({
       gameId,
@@ -141,7 +162,7 @@ export const findOrCreateGame = async ({ userId, boardId }) => {
 
     const newGame = await apiClient.post('/games', newGameState);
 
-    console.log('Yeni oyun olusturuldu, rakip bekleniyor...');
+    console.log('✅ Yeni oyun oluşturuldu, rakip bekleniyor...', newGame.id);
     return {
       success: true,
       game: newGame,
@@ -149,7 +170,7 @@ export const findOrCreateGame = async ({ userId, boardId }) => {
       isWaiting: true,
     };
   } catch (error) {
-    console.error('findOrCreateGame error:', error);
+    console.error('❌ findOrCreateGame error:', error);
     return { success: false, error: error.message };
   }
 };
