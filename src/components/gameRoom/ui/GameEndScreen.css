@@ -9,6 +9,8 @@
   align-items: center;
   justify-content: center;
   animation: fadeIn 0.5s ease-out;
+  overflow-y: auto; /* Scroll aktif */
+  overflow-x: hidden;
 }
 
 @keyframes fadeIn {
@@ -34,9 +36,12 @@
   position: relative;
   z-index: 2;
   text-align: center;
-  padding: 40px;
+  padding: 40px 20px;
   max-width: 600px;
+  width: 100%;
+  margin: auto;
   animation: slideUp 0.6s ease-out;
+  min-height: min-content; /* İçerik kadar yükseklik */
 }
 
 @keyframes slideUp {
@@ -348,23 +353,101 @@
 
 /* Responsive */
 @media (max-width: 768px) {
+  .game-end-content {
+    padding: 30px 15px;
+  }
+
   .victory-title, .defeat-title {
-    font-size: 40px;
+    font-size: 36px;
   }
 
   .trophy-icon, .defeat-icon {
     font-size: 80px;
   }
 
+  .victory-subtitle, .defeat-subtitle {
+    font-size: 18px;
+  }
+
+  .score-display {
+    flex-direction: column;
+    gap: 20px;
+    padding: 20px;
+  }
+
   .score-value {
     font-size: 40px;
   }
 
+  .vs-divider {
+    display: none;
+  }
+
   .game-end-buttons {
     flex-direction: column;
+    gap: 15px;
   }
 
   .end-button {
     width: 100%;
+    padding: 14px 30px;
+    font-size: 16px;
+  }
+
+  .motivation-text {
+    font-size: 16px;
+    padding: 12px;
+  }
+
+  .star {
+    font-size: 36px;
+    margin: 0 3px;
+  }
+}
+
+@media (max-width: 480px) {
+  .game-end-content {
+    padding: 20px 10px;
+  }
+
+  .victory-title, .defeat-title {
+    font-size: 28px;
+  }
+
+  .trophy-icon, .defeat-icon {
+    font-size: 60px;
+  }
+
+  .victory-subtitle, .defeat-subtitle {
+    font-size: 16px;
+    margin-bottom: 20px;
+  }
+
+  .score-display {
+    padding: 15px;
+    margin: 20px 0;
+  }
+
+  .score-label {
+    font-size: 14px;
+  }
+
+  .score-value {
+    font-size: 32px;
+  }
+
+  .end-button {
+    padding: 12px 24px;
+    font-size: 14px;
+  }
+
+  .star {
+    font-size: 28px;
+    margin: 0 2px;
+  }
+
+  .trophy-glow {
+    width: 100px;
+    height: 100px;
   }
 }

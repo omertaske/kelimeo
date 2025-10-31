@@ -38,6 +38,12 @@ const writeStorage = (key, value) => {
 
 const normalizeUserShape = (rawUser) => {
   if (!rawUser) return null;
+  
+  // Username kontrolü - eksikse null döndür
+  if (!rawUser.username || rawUser.username.trim() === '') {
+    console.warn('Invalid user data: missing username', rawUser);
+    return null;
+  }
 
   const merged = {
     ...rawUser,
@@ -84,7 +90,7 @@ const ensureBotRoster = (users) => {
 
   const mergedBots = defaultBots.map((defaultBot) => {
     const existing = currentBots.find(
-      (bot) => bot.id === defaultBot.id || bot.username === defaultBot.username
+      (bot) => bot.id === defaultBot.id || (bot.username && bot.username === defaultBot.username)
     );
 
     if (!existing) {
@@ -640,7 +646,7 @@ export const registerUser = ({ username, email, password }) => async (dispatch, 
     const { users } = getState().user;
 
     const usernameTaken = users.some(
-      (user) => !user.isBot && user.username.toLowerCase() === normalizedUsername
+      (user) => !user.isBot && user.username?.toLowerCase() === normalizedUsername
     );
 
     if (usernameTaken) {
