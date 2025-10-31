@@ -1122,17 +1122,7 @@ export const GameProvider = ({ children }) => {
     let interval;
     if (gameState === GAME_STATES.MATCHING) {
       interval = setInterval(() => {
-        setMatchingTimer(prev => {
-          const newTimer = prev + 1;
-          
-          // 10 saniye sonra bot ile oyunu başlat
-          if (newTimer >= 10 && opponent === null) {
-            console.log('10 saniye doldu, bot ile oyun başlatılıyor...');
-            startGameWithBot();
-          }
-          
-          return newTimer;
-        });
+        setMatchingTimer(prev => prev + 1);
       }, 1000);
     } else {
       setMatchingTimer(0);
@@ -1141,7 +1131,7 @@ export const GameProvider = ({ children }) => {
     return () => {
       if (interval) clearInterval(interval);
     };
-  }, [gameState, opponent, startGameWithBot]);
+  }, [gameState]);
 
   // Oyun zamanlayıcısı (5 dakika)
   useEffect(() => {
