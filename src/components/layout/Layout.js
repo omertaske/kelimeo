@@ -44,7 +44,7 @@ const Layout = () => {
       <header className="layout-header">
         <div className="header-content">
           <div className="logo-section">
-            <h1 className="app-title" onClick={() => handleNavigation('/rooms')}>
+            <h1 className="app-title" onClick={() => handleNavigation('/lobby')}>
               🎯 Kelimeo Scrabble
             </h1>
             {gameState === GAME_STATES.PLAYING && (
@@ -56,11 +56,18 @@ const Layout = () => {
 
           <nav className="main-nav">
             <button 
+              className={`nav-button ${isActive('/lobby') ? 'active' : ''}`}
+              onClick={() => handleNavigation('/lobby')}
+              disabled={gameState === GAME_STATES.PLAYING}
+            >
+              🎮 Lobby
+            </button>
+            <button 
               className={`nav-button ${isActive('/rooms') ? 'active' : ''}`}
               onClick={() => handleNavigation('/rooms')}
               disabled={gameState === GAME_STATES.PLAYING}
             >
-              🏠 Odalar
+              🏠 Odalar (Bot)
             </button>
             <button 
               className={`nav-button ${isActive('/letters') ? 'active' : ''}`}

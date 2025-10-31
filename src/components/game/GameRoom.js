@@ -61,8 +61,14 @@ const GameRoom = () => {
 
   const { playSound } = useSound();
 
-  // Component mount olduğunda odaya katıl
+  // Component mount olduğunda odaya katıl (SADECE eğer oyun başlamamışsa)
   useEffect(() => {
+    // Eğer oyun zaten PLAYING durumundaysa, joinRoom çağırma (multiplayer'dan gelindi)
+    if (gameState === GAME_STATES.PLAYING) {
+      console.log('Oyun zaten başlamış, joinRoom atlandı');
+      return;
+    }
+
     // URL'den gelen roomId'yi BOARD_TYPES key'i olarak kontrol et
     const boardKey = roomId?.toUpperCase();
     const boardExists = BOARD_TYPES[boardKey];
@@ -81,7 +87,7 @@ const GameRoom = () => {
       console.log(`GameRoom mount: ${roomId} odasına katılıyor...`);
       joinRoom(roomId);
     }
-  }, [roomId, navigate, joinRoom, currentRoom, BOARD_TYPES]);
+  }, [roomId, navigate, joinRoom, currentRoom, BOARD_TYPES, gameState, GAME_STATES.PLAYING]);
 
   // Mouse move listener for dragging
   useEffect(() => {

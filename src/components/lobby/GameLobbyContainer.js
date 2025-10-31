@@ -109,12 +109,12 @@ const GameLobby = ({ currentUser, onStartGame, onLogout }) => {
 
     setWaitingForMatch(true);
     
-    console.log('🎮 Matchmaking başlatılıyor...', { userId: currentUser.id, boardId: 'classic' });
+    console.log('🎮 Matchmaking başlatılıyor...', { userId: currentUser.id, boardId: 'room_1' });
     
     // Matchmaking servisi ile oyun bul veya oluştur
     const result = await findOrCreateGame({
       userId: currentUser.id,
-      boardId: 'classic', // Varsayılan tahta
+      boardId: 'room_1', // Çırak Odası (varsayılan multiplayer odası)
     });
 
     console.log('📊 Matchmaking sonucu:', result);
@@ -176,7 +176,7 @@ const GameLobby = ({ currentUser, onStartGame, onLogout }) => {
     // Direct challenge - her zaman yeni oyun oluştur
     const result = await findOrCreateGame({
       userId: currentUser.id,
-      boardId: 'classic',
+      boardId: 'room_1',
     });
 
     if (!result.success) {
