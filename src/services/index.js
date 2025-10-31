@@ -3,3 +3,4 @@ export * from './tdkService';
 export * from './storageService';
 export * from './gameService';
 export * from './gameStateHelper';
+export * from './matchmakingService';

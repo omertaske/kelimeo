@@ -11,15 +11,13 @@ const WaitingMatch = ({
   const [isReady, setIsReady] = useState(false);
   const [opponentReady, setOpponentReady] = useState(false);
   const [countdown, setCountdown] = useState(null);
-  const [isPolling, setIsPolling] = useState(false);
 
   // Rakibin hazır durumunu kontrol et (polling)
   useEffect(() => {
-    if (!gameId || !isReady || opponentReady || countdown !== null) {
+    if (!gameId || !isReady || opponentReady || countdown !== null || !selectedOpponent) {
       return;
     }
 
-    setIsPolling(true);
     const pollInterval = setInterval(async () => {
       try {
         const { success, game } = await fetchGameState(gameId);
@@ -32,7 +30,6 @@ const WaitingMatch = ({
           if (player1Ready && player2Ready) {
             setOpponentReady(true);
             clearInterval(pollInterval);
-            setIsPolling(false);
           }
         }
       } catch (error) {
@@ -42,9 +39,8 @@ const WaitingMatch = ({
 
     return () => {
       clearInterval(pollInterval);
-      setIsPolling(false);
     };
-  }, [gameId, isReady, opponentReady, countdown]);
+  }, [gameId, isReady, opponentReady, countdown, selectedOpponent]);
 
   useEffect(() => {
     // Her iki oyuncu da hazırsa countdown başlat
@@ -89,6 +85,17 @@ const WaitingMatch = ({
       }
     }
   };
+
+  // Eğer henüz opponent yoksa, sadece bekleme ekranı göster
+  if (!selectedOpponent) {
+    return (
+      <div className="waiting-match">
+        <div className="loading-spinner">⏳</div>
+        <p>Rakip aranıyor...</p>
+        <p className="waiting-subtitle">Başka bir oyuncu katılması bekleniyor</p>
+      </div>
+    );
+  }
 
   if (countdown !== null) {
     return (

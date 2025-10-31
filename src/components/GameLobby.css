@@ -126,6 +126,13 @@
   margin-bottom: 20px;
 }
 
+.waiting-subtitle {
+  font-size: 14px;
+  color: #7f8c8d;
+  margin-top: 10px;
+  font-style: italic;
+}
+
 .loading-spinner {
   font-size: 48px;
   animation: spin 2s linear infinite;

@@ -157,20 +157,9 @@ const seedCollection = async (endpoint, records) => {
 };
 
 const ensureRemoteBots = async (currentBots) => {
-  let normalizedBots = normalizeBots(currentBots);
+  // Botları artık API'den çekmiyoruz, sadece local'den oluşturuyoruz
   const defaultBots = buildDefaultBots();
-
-  const missingBots = defaultBots.filter((defaultBot) =>
-    !normalizedBots.some((bot) => bot.username?.toLowerCase() === defaultBot.username?.toLowerCase())
-  );
-
-  if (missingBots.length) {
-    const created = await seedCollection(API_ENDPOINTS.BOTS, missingBots);
-    const normalizedCreated = normalizeBots(created);
-    normalizedBots = [...normalizedBots, ...normalizedCreated];
-  }
-
-  return normalizedBots;
+  return normalizeBots(defaultBots);
 };
 
 const ensureRemoteHumans = async (currentHumans) => {
@@ -356,7 +345,7 @@ export const startMatchmaking = (options = {}) => async (dispatch, getState) => 
     let roster = users;
     try {
       const remoteUsers = await fetchCollection(API_ENDPOINTS.USERS);
-      roster = normalizeHumans(remoteUsers).concat(normalizeBots(await fetchCollection(API_ENDPOINTS.BOTS)));
+      roster = normalizeHumans(remoteUsers).concat(buildDefaultBots());
     } catch (err) {
       // ignore, use local roster
     }
@@ -459,12 +448,9 @@ export const startMatchmaking = (options = {}) => async (dispatch, getState) => 
     dispatch(setUsers(newUsers));
     dispatch(setCurrentUser(meFinal));
 
-    // persist
+    // persist (sadece kullanıcı, bot local'de kalacak)
     try {
-      await Promise.all([
-        apiClient.put(`${API_ENDPOINTS.USERS}/${meFinal.id}`, meFinal),
-        apiClient.put(`${API_ENDPOINTS.BOTS}/${botFinal.id}`, botFinal)
-      ]);
+      await apiClient.put(`${API_ENDPOINTS.USERS}/${meFinal.id}`, meFinal);
     } catch (err) {
       console.warn('Failed to persist bot match to API:', err);
     }
@@ -529,13 +515,10 @@ export const initializeUsers = () => async (dispatch) => {
   dispatch(setError(null));
 
   try {
-    const [remoteHumansRaw, remoteBotsRaw] = await Promise.all([
-      fetchCollection(API_ENDPOINTS.USERS),
-      fetchCollection(API_ENDPOINTS.BOTS)
-    ]);
+    const remoteHumansRaw = await fetchCollection(API_ENDPOINTS.USERS);
 
     const humans = await ensureRemoteHumans(remoteHumansRaw);
-    const bots = await ensureRemoteBots(remoteBotsRaw);
+    const bots = await ensureRemoteBots([]); // Botlar local'den gelecek
 
     const roster = ensureBotRoster([...humans, ...bots]);
 

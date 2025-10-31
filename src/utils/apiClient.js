@@ -58,5 +58,5 @@ export const apiClient = {
 
 export const API_ENDPOINTS = {
   USERS: '/users',
-  BOTS: '/bots'
+  GAMES: '/games'
 };

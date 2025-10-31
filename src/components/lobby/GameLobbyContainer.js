@@ -2,8 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import './GameLobby.css';
 import { useAuth } from '../../context/AuthContext';
 import { calculateWinRate } from '../../utils/game/scoreUtils';
-import { createGame } from '../../services/gameService';
-import { createGameState } from '../../services/gameStateHelper';
+import { findOrCreateGame } from '../../services/matchmakingService';
 import UserProfile from './UserProfile';
 import MatchmakingButtons from './MatchmakingButtons';
 import WaitingMatch from './WaitingMatch';
@@ -108,50 +107,88 @@ const GameLobby = ({ currentUser, onStartGame, onLogout }) => {
       return;
     }
 
-    const randomOpponent = onlineUsers[Math.floor(Math.random() * onlineUsers.length)];
-    setSelectedOpponent(randomOpponent);
     setWaitingForMatch(true);
     
-    // API'de gerçek oyun oluştur
-    const gameId = `game_${Date.now()}`;
-    const gameState = createGameState({
-      gameId,
-      player1Id: currentUser.id,
-      player2Id: randomOpponent.id,
+    // Matchmaking servisi ile oyun bul veya oluştur
+    const result = await findOrCreateGame({
+      userId: currentUser.id,
       boardId: 'classic', // Varsayılan tahta
     });
 
-    const { success, game } = await createGame(gameState);
-    if (success) {
-      setMatchGameId(game.id);
-      console.log('Oyun API\'de olusturuldu:', game.id);
-    } else {
-      alert('Oyun oluşturulamadı! Lütfen tekrar deneyin.');
+    if (!result.success) {
+      alert('Eşleşme başarısız! Lütfen tekrar deneyin.');
       setWaitingForMatch(false);
+      return;
     }
+
+    setMatchGameId(result.game.id);
+
+    if (result.isWaiting) {
+      // Bekleyen oyun oluşturduk, rakip bekleniyor
+      console.log('Rakip bekleniyor...');
+      // Polling başlat - rakip geldiğinde otomatik devam edecek
+      pollForOpponent(result.game.id);
+    } else {
+      // Mevcut oyuna katıldık, rakip bulundu!
+      const opponentId = result.role === 'player1' ? result.game.player2Id : result.game.player1Id;
+      const opponent = onlineUsers.find(u => u.id === opponentId) || {
+        id: opponentId,
+        username: 'Rakip',
+      };
+      setSelectedOpponent(opponent);
+      console.log('Rakip bulundu:', opponent.username);
+    }
+  };
+
+  const pollForOpponent = (gameId) => {
+    let opponentFound = false;
+    
+    const pollInterval = setInterval(async () => {
+      const { fetchGameState } = await import('../../services/gameService');
+      const { success, game } = await fetchGameState(gameId);
+      
+      if (success && game?.player2Id) {
+        // Rakip katıldı!
+        opponentFound = true;
+        clearInterval(pollInterval);
+        const opponent = onlineUsers.find(u => u.id === game.player2Id) || {
+          id: game.player2Id,
+          username: 'Rakip',
+        };
+        setSelectedOpponent(opponent);
+        console.log('Rakip katildi:', opponent.username);
+      }
+    }, 1000); // 1 saniyede bir kontrol
+
+    // 30 saniye sonra timeout
+    setTimeout(() => {
+      clearInterval(pollInterval);
+      if (!opponentFound) {
+        setWaitingForMatch(false);
+        setSelectedOpponent(null);
+        alert('Rakip bulunamadı, lütfen tekrar deneyin.');
+      }
+    }, 30000);
   };
 
   const challengeUser = async (opponent) => {
     setSelectedOpponent(opponent);
     setWaitingForMatch(true);
     
-    // API'de gerçek oyun oluştur
-    const gameId = `game_${Date.now()}`;
-    const gameState = createGameState({
-      gameId,
-      player1Id: currentUser.id,
-      player2Id: opponent.id,
-      boardId: 'classic', // Varsayılan tahta
+    // Direct challenge - her zaman yeni oyun oluştur
+    const result = await findOrCreateGame({
+      userId: currentUser.id,
+      boardId: 'classic',
     });
 
-    const { success, game } = await createGame(gameState);
-    if (success) {
-      setMatchGameId(game.id);
-      console.log('Oyun API\'de olusturuldu:', game.id);
-    } else {
+    if (!result.success) {
       alert('Oyun oluşturulamadı! Lütfen tekrar deneyin.');
       setWaitingForMatch(false);
+      return;
     }
+
+    setMatchGameId(result.game.id);
+    console.log('Challenge oyunu olusturuldu:', result.game.id);
   };
 
   const handleBothReady = () => {
