@@ -45,7 +45,7 @@ const MatchmakingScreen = () => {
       // Immediately join the match room on server
       joinMatch({ matchId: data.matchId, roomId });
 
-      // Navigate to game route after 2 seconds (MultiplayerRoom under the hood)
+  // Navigate to game route after 2 seconds (GameRoom UI)
       setTimeout(() => {
         navigate(`/game/${roomId}`, {
           state: {

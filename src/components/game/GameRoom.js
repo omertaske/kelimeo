@@ -1,8 +1,9 @@
-import React, { useState, useEffect, useCallback } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { useGame } from '../../context/GameContext';
 import { useSound } from '../../hooks/useSound';
 import { toLowerCaseTurkish } from '../../helpers/stringHelpers';
+import { useMatchGame } from '../../services/matchGameService';
 import Toast from '../gameRoom/ui/Toast';
 import GameEndScreen from '../gameRoom/ui/GameEndScreen';
 import BagDrawer from '../gameRoom/ui/BagDrawer';
@@ -13,6 +14,26 @@ import './GameBoard.css';
 const GameRoom = () => {
   const { roomId } = useParams();
   const navigate = useNavigate();
+  const location = useLocation();
+  const initialData = useMemo(() => location.state || {}, [location.state]);
+  const matchId = initialData?.matchId;
+  const partnerId = initialData?.partnerId;
+  const mpMode = !!matchId; // Eşleşmeden geldiysek çok oyunculu mod
+  const {
+    joinMatch: mpJoinMatch,
+    placeTiles: mpPlaceTiles,
+    passTurn: mpPassTurn,
+    leaveMatch: mpLeaveMatch,
+    requestFullState,
+    onGameReady,
+    onStatePatch,
+    onTurnChanged,
+    onOpponentLeft,
+    onGameOver,
+    onMatchError,
+    onWaitingOpponent,
+    onFullState,
+  } = useMatchGame();
   const { 
     gameState, 
     GAME_STATES, 
@@ -61,9 +82,20 @@ const GameRoom = () => {
 
   const { playSound } = useSound();
 
+  // Multiplayer (otoriter sunucu) state'leri
+  const [mpBoard, setMpBoard] = useState([]);
+  const [mpRack, setMpRack] = useState([]);
+  const [mpOppRackCount, setMpOppRackCount] = useState(0);
+  const [mpScores, setMpScores] = useState({});
+  const [mpCurrentTurn, setMpCurrentTurn] = useState(null);
+  const [mpTileBagRemaining, setMpTileBagRemaining] = useState();
+
   // Component mount olduğunda odaya katıl (SADECE eğer oyun başlamamışsa)
   useEffect(() => {
     // Eğer oyun zaten PLAYING durumundaysa, joinRoom çağırma (multiplayer'dan gelindi)
+    if (mpMode) {
+      return; // MP modda local joinRoom yapma
+    }
     if (gameState === GAME_STATES.PLAYING) {
       console.log('Oyun zaten başlamış, joinRoom atlandı');
       return;
@@ -87,7 +119,66 @@ const GameRoom = () => {
       console.log(`GameRoom mount: ${roomId} odasına katılıyor...`);
       joinRoom(roomId);
     }
-  }, [roomId, navigate, joinRoom, currentRoom, BOARD_TYPES, gameState, GAME_STATES.PLAYING]);
+  }, [roomId, navigate, joinRoom, currentRoom, BOARD_TYPES, gameState, GAME_STATES.PLAYING, mpMode]);
+
+  // MP: Socket event abonelikleri
+  useEffect(() => {
+    if (!mpMode) return;
+    const c1 = onGameReady((payload) => {
+      setMpScores(payload.state?.scores || {});
+      setMpCurrentTurn(payload.state?.currentTurn || null);
+    });
+    const c2 = onStatePatch(({ move, boardDiff, scores, tileBagRemaining, currentTurn }) => {
+      if (scores) setMpScores(scores);
+      if (typeof tileBagRemaining === 'number') setMpTileBagRemaining(tileBagRemaining);
+      if (currentTurn) setMpCurrentTurn(currentTurn);
+      if (Array.isArray(boardDiff) && boardDiff.length) {
+        setMpBoard(prev => {
+          if (!prev || prev.length === 0) return prev;
+          const next = prev.map(r => r.map(c => ({ ...c })));
+          boardDiff.forEach(({ row, col, letter, isBlank, blankAs }) => {
+            const cell = next[row]?.[col];
+            if (!cell) return;
+            const hadMult = !!cell.multiplier;
+            next[row][col] = {
+              ...cell,
+              letter,
+              owner: move?.by,
+              isBlank: !!isBlank,
+              blankAs: blankAs || (isBlank ? letter : null),
+              usedMultipliers: cell.usedMultipliers || hadMult ? true : false,
+            };
+          });
+          return next;
+        });
+      }
+    });
+  const c3 = onTurnChanged(({ currentTurn }) => setMpCurrentTurn(currentTurn));
+  const c4 = onOpponentLeft(() => {});
+  const c5 = onGameOver(() => {});
+  const c6 = onMatchError(() => {});
+  const c7 = onWaitingOpponent(() => {});
+    const c8 = onFullState((full) => {
+      setMpScores(full.scores || {});
+      setMpCurrentTurn(full.currentTurn || null);
+      if (Array.isArray(full.board)) setMpBoard(full.board);
+      if (full.rack) {
+        setMpRack(full.rack.me || []);
+        setMpOppRackCount(full.rack.opponentCount || 0);
+      }
+      if (typeof full.tileBagRemaining === 'number') setMpTileBagRemaining(full.tileBagRemaining);
+    });
+    return () => { c1(); c2(); c3(); c4(); c5(); c6(); c7(); c8(); };
+  }, [mpMode, onGameReady, onStatePatch, onTurnChanged, onOpponentLeft, onGameOver, onMatchError, onWaitingOpponent, onFullState]);
+
+  // MP: Maça katıl ve tam state iste
+  useEffect(() => {
+    if (!mpMode) return;
+    if (matchId && roomId) {
+      mpJoinMatch({ matchId, roomId });
+      requestFullState({ matchId });
+    }
+  }, [mpMode, matchId, roomId, mpJoinMatch, requestFullState]);
 
   // Mouse move listener for dragging
   useEffect(() => {
@@ -137,7 +228,9 @@ const GameRoom = () => {
     }
 
     // Geçici tahta oluştur
-    const tempBoard = gameBoard.map(row => row.map(cell => ({ ...cell })));
+    const baseBoard = (mpMode ? mpBoard : gameBoard) || [];
+    if (!baseBoard.length) return;
+    const tempBoard = baseBoard.map(row => row.map(cell => ({ ...cell })));
     placedTiles.forEach(({ letter, row, col, isBlank, repr }) => {
       tempBoard[row][col] = {
         ...tempBoard[row][col],
@@ -150,10 +243,10 @@ const GameRoom = () => {
 
     // TÜM oluşan kelimeleri bul ve toplam puanı hesapla
     try {
-      const positions = placedTiles.map(({ row, col }) => ({ row, col }));
+  const positions = placedTiles.map(({ row, col }) => ({ row, col }));
       
       // findAllWords kullanarak tüm kelimeleri bul (context'ten gelen fonksiyon)
-      const formedWords = findAllWords ? findAllWords(tempBoard, positions) : [];
+  const formedWords = findAllWords ? findAllWords(tempBoard, positions) : [];
       
       if (formedWords.length === 0) {
         setCurrentScore(0);
@@ -165,7 +258,7 @@ const GameRoom = () => {
       for (const { word, positions: wordPositions } of formedWords) {
         if (word.length < 2) continue; // Tek harfler sayılmaz
         
-        const scoreResult = calculateScore(word, wordPositions, gameBoard);
+    const scoreResult = calculateScore(word, wordPositions, baseBoard);
         totalScore += scoreResult.score;
       }
       
@@ -179,7 +272,7 @@ const GameRoom = () => {
       console.error('Puan hesaplama hatası:', error);
       setCurrentScore(0);
     }
-  }, [placedTiles, gameBoard, LETTER_SCORES, calculateScore, findAllWords]);
+  }, [placedTiles, gameBoard, mpBoard, mpMode, LETTER_SCORES, calculateScore, findAllWords]);
 
   // Bot pas geçme bildirimi
   useEffect(() => {
@@ -202,7 +295,9 @@ const GameRoom = () => {
   }, [moveHistory, playSound]);
 
   const handleLetterSelect = (letter) => {
-    if (currentTurn !== 'player' || gameState !== GAME_STATES.PLAYING) return;
+    const myTurn = mpMode ? (mpCurrentTurn === currentUser?.id) : (currentTurn === 'player');
+    const isPlaying = mpMode ? true : (gameState === GAME_STATES.PLAYING);
+    if (!myTurn || !isPlaying) return;
     
     // Harfi sürükleme moduna al
     setDraggingLetter(letter);
@@ -213,11 +308,13 @@ const GameRoom = () => {
   };
 
   const handleBoardClick = (row, col) => {
-    const cell = gameBoard[row][col];
+    const board = mpMode ? mpBoard : gameBoard;
+    if (!board?.[row]?.[col]) return;
+    const cell = board[row][col];
     const placedTile = placedTiles.find(t => t.row === row && t.col === col);
     
     // Eğer hücrede onaylanmış bir harf varsa ve oyun devam ediyorsa, kelime anlamını göster
-    if (cell.letter && cell.owner && gameState === GAME_STATES.PLAYING) {
+    if (cell.letter && cell.owner && (mpMode ? true : (gameState === GAME_STATES.PLAYING))) {
       const word = findWordAtCell(row, col);
       if (word && word.length >= 2) {
         // Eğer kelime anlamı cache'de varsa göster, yoksa TDK'dan getir
@@ -233,7 +330,9 @@ const GameRoom = () => {
     }
     
     // Oyuncu sırası değilse çık
-    if (currentTurn !== 'player' || gameState !== GAME_STATES.PLAYING) return;
+  const myTurn = mpMode ? (mpCurrentTurn === currentUser?.id) : (currentTurn === 'player');
+  const isPlaying = mpMode ? true : (gameState === GAME_STATES.PLAYING);
+  if (!myTurn || !isPlaying) return;
     
     // Eğer sürüklenen harf varsa, yerleştir
     if (draggingLetter) {
@@ -338,37 +437,46 @@ const GameRoom = () => {
 
   const handleSubmitWord = async () => {
     if (placedTiles.length === 0 || isSubmitting) return;
-    
+    if (mpMode) {
+      // Otoriter sunucu: hamleyi gönder
+      const tiles = placedTiles.map(({ letter, row, col, isBlank, repr }) => ({
+        row,
+        col,
+        letter: isBlank ? (repr || '') : letter,
+        isBlank: !!isBlank,
+        repr: isBlank ? (repr || '') : undefined,
+      }));
+      mpPlaceTiles({ matchId, roomId, move: { type: 'place_tiles', tiles, meta: {} } });
+      clearPlacedTiles();
+      setCurrentScore(0);
+      return;
+    }
+
     setIsSubmitting(true);
     setToastMessage({ text: 'Kelime kontrol ediliyor...', type: 'info', duration: 2000 });
-
     const positions = placedTiles.map(({ row, col }) => ({ row, col }));
-
     try {
       const result = await makeMove('', positions);
-      
       if (result.success) {
         const wordsText = result.words.map(w => w.word).join(', ');
         let successMessage = `✅ Harika! "${wordsText}" - ${result.score} puan!`;
-        
         if (placedTiles.length === 7) {
           successMessage += ' 🎉 BINGO! +50 bonus puan!';
         }
-        
         setToastMessage({ text: successMessage, type: 'success', duration: 3000 });
         playSound('kelimeKabulEdildi', 0.6);
-        setCurrentScore(0); // Puanı sıfırla
+        setCurrentScore(0);
       } else {
         setToastMessage({ text: `❌ ${result.error}`, type: 'error', duration: 3000 });
         playSound('toastUyari', 0.5);
         clearPlacedTiles();
-        setCurrentScore(0); // Puanı sıfırla
+        setCurrentScore(0);
       }
     } catch (error) {
       setToastMessage({ text: '❌ Bir hata oluştu!', type: 'error', duration: 2000 });
       playSound('toastUyari', 0.5);
       clearPlacedTiles();
-      setCurrentScore(0); // Puanı sıfırla
+      setCurrentScore(0);
     } finally {
       setIsSubmitting(false);
     }
@@ -380,6 +488,10 @@ const GameRoom = () => {
   };
 
   const handlePass = () => {
+    if (mpMode) {
+      mpPassTurn({ matchId, roomId });
+      return;
+    }
     const result = passMove();
     if (result.success) {
       setToastMessage({ text: '⏭️ Sıra geçildi!', type: 'info', duration: 2000 });
@@ -436,7 +548,8 @@ const GameRoom = () => {
 
   // Hücredeki kelimeyi bul (yatay veya dikey)
   const findWordAtCell = (row, col) => {
-    if (!gameBoard[row] || !gameBoard[row][col] || !gameBoard[row][col].letter) {
+    const board = mpMode ? mpBoard : gameBoard;
+    if (!board[row] || !board[row][col] || !board[row][col].letter) {
       return null;
     }
 
@@ -445,19 +558,19 @@ const GameRoom = () => {
     let endCol = col;
     
     // Başlangıcı bul
-    while (startCol > 0 && gameBoard[row][startCol - 1]?.letter) {
+    while (startCol > 0 && board[row][startCol - 1]?.letter) {
       startCol--;
     }
     
     // Bitişi bul
-    while (endCol < gameBoard[row].length - 1 && gameBoard[row][endCol + 1]?.letter) {
+    while (endCol < board[row].length - 1 && board[row][endCol + 1]?.letter) {
       endCol++;
     }
     
     // Yatay kelime oluştur
     let horizontalWord = '';
     for (let c = startCol; c <= endCol; c++) {
-      horizontalWord += gameBoard[row][c].letter;
+      horizontalWord += board[row][c].letter;
     }
     
     // Dikey kelime bul
@@ -465,19 +578,19 @@ const GameRoom = () => {
     let endRow = row;
     
     // Başlangıcı bul
-    while (startRow > 0 && gameBoard[startRow - 1]?.[col]?.letter) {
+    while (startRow > 0 && board[startRow - 1]?.[col]?.letter) {
       startRow--;
     }
     
     // Bitişi bul
-    while (endRow < gameBoard.length - 1 && gameBoard[endRow + 1]?.[col]?.letter) {
+    while (endRow < board.length - 1 && board[endRow + 1]?.[col]?.letter) {
       endRow++;
     }
     
     // Dikey kelime oluştur
     let verticalWord = '';
     for (let r = startRow; r <= endRow; r++) {
-      verticalWord += gameBoard[r][col].letter;
+      verticalWord += board[r][col].letter;
     }
     
     // En az 2 harfli kelimeyi döndür
@@ -492,7 +605,8 @@ const GameRoom = () => {
 
   // Hücreye hover olduğunda - kelime anlamı varsa göster
   const handleCellHover = (row, col) => {
-    const cell = gameBoard[row]?.[col];
+    const board = mpMode ? mpBoard : gameBoard;
+    const cell = board[row]?.[col];
     if (!cell || !cell.letter || !cell.owner) return; // Sadece onaylanmış harfler için
     
     // Hover efekti için kullanılabilir (şimdilik boş)
@@ -502,7 +616,7 @@ const GameRoom = () => {
     if (gameState === GAME_STATES.PLAYING) {
       if (window.confirm('Oyundan çıkmak istediğinize emin misiniz? Bu durum yenilgi sayılacaktır!')) {
         // Yarıda bırakma = mağlubiyet
-        if (currentUser && opponent) {
+        if (!mpMode && currentUser && opponent) {
           updateUserStats(currentUser.id, {
             gamesPlayed: 1,
             losses: 1
@@ -510,7 +624,7 @@ const GameRoom = () => {
           console.log('❌ Oyun yarıda bırakıldı - mağlubiyet kaydedildi');
         }
         
-        leaveGame();
+        if (mpMode) mpLeaveMatch({ matchId, roomId }); else leaveGame();
         navigate('/rooms');
       }
     } else {
@@ -560,9 +674,10 @@ const GameRoom = () => {
   };
 
   const renderBoard = () => {
-    if (!currentRoom || !gameBoard.length) return null;
+    const board = mpMode ? mpBoard : gameBoard;
+    if ((mpMode && (!board || !board.length)) || (!mpMode && (!currentRoom || !board.length))) return null;
 
-    const size = currentRoom.boardSize;
+    const size = mpMode ? (board?.length || 15) : currentRoom.boardSize;
     
     return (
       <div className="game-board-container">
@@ -593,7 +708,7 @@ const GameRoom = () => {
           gridTemplateColumns: `repeat(${size}, 1fr)`,
           gridTemplateRows: `repeat(${size}, 1fr)`
         }}>
-          {gameBoard.map((row, rowIndex) =>
+          {board.map((row, rowIndex) =>
             row.map((cell, colIndex) => {
               const placedTile = placedTiles.find(t => t.row === rowIndex && t.col === colIndex);
               const displayLetter = placedTile ? placedTile.letter : cell.letter;
@@ -646,15 +761,15 @@ const GameRoom = () => {
           onMouseDown={handleRackMouseDown}
         >
           <div className="letter-rack-title">
-            ✋ Harfleriniz ({playerLetters.length}/7) {draggingLetter ? '- Sürükleniyor...' : isDraggingRack ? '- Taşınıyor...' : ''}
+            ✋ Harfleriniz ({(mpMode ? mpRack.length : playerLetters.length)}/7) {draggingLetter ? '- Sürükleniyor...' : isDraggingRack ? '- Taşınıyor...' : ''}
           </div>
           <div className="letter-tiles">
-            {playerLetters.map((letter, index) => (
+            {(mpMode ? mpRack : playerLetters).map((letter, index) => (
               <div
                 key={`${letter}-${index}`}
-                className={`letter-tile ${draggingLetter === letter ? 'selected' : ''} ${currentTurn !== 'player' ? 'disabled' : ''}`}
+                className={`letter-tile ${draggingLetter === letter ? 'selected' : ''} ${(mpMode ? (mpCurrentTurn !== currentUser?.id) : (currentTurn !== 'player')) ? 'disabled' : ''}`}
                 onClick={() => handleLetterSelect(letter)}
-                style={{ cursor: currentTurn === 'player' ? 'grab' : 'not-allowed' }}
+                style={{ cursor: (mpMode ? (mpCurrentTurn === currentUser?.id) : (currentTurn === 'player')) ? 'grab' : 'not-allowed' }}
               >
                 {letter}
                 <span className="letter-tile-score">{LETTER_SCORES[letter] || 0}</span>
@@ -667,7 +782,7 @@ const GameRoom = () => {
             <button
               className="control-button primary"
               onClick={handleSubmitWord}
-              disabled={placedTiles.length === 0 || currentTurn !== 'player' || isSubmitting}
+              disabled={placedTiles.length === 0 || (mpMode ? (mpCurrentTurn !== currentUser?.id) : (currentTurn !== 'player')) || isSubmitting}
             >
               ✅ Gönder
             </button>
@@ -683,7 +798,7 @@ const GameRoom = () => {
             <button
               className="control-button secondary"
               onClick={handleShuffle}
-              disabled={currentTurn !== 'player'}
+              disabled={(mpMode ? (mpCurrentTurn !== currentUser?.id) : (currentTurn !== 'player'))}
             >
               � Karıştır
             </button>
@@ -691,7 +806,7 @@ const GameRoom = () => {
             <button
               className="control-button secondary"
               onClick={handlePass}
-              disabled={currentTurn !== 'player'}
+              disabled={(mpMode ? (mpCurrentTurn !== currentUser?.id) : (currentTurn !== 'player'))}
             >
               ⏭️ Pas
             </button>
@@ -702,8 +817,9 @@ const GameRoom = () => {
   };
 
   // roomId'yi hem uppercase key hem de id olarak kontrol et
-  const currentBoardType = BOARD_TYPES[roomId?.toUpperCase()] || 
-                          Object.values(BOARD_TYPES).find(b => b.id === roomId);
+  const currentBoardType = mpMode
+    ? (BOARD_TYPES[roomId?.toUpperCase()] || Object.values(BOARD_TYPES).find(b => b.id === roomId) || { name: 'Çok Oyunculu', icon: '🎮', description: 'Eşleşmeli oyun', id: roomId })
+    : (BOARD_TYPES[roomId?.toUpperCase()] || Object.values(BOARD_TYPES).find(b => b.id === roomId));
 
   if (!currentBoardType) {
     return (
@@ -714,7 +830,8 @@ const GameRoom = () => {
     );
   }
 
-  if (gameState === GAME_STATES.MATCHING) {
+  const effectiveState = mpMode ? GAME_STATES.PLAYING : gameState;
+  if (effectiveState === GAME_STATES.MATCHING) {
     return (
       <div className="game-room matching">
         <div className="matching-screen">
@@ -747,7 +864,7 @@ const GameRoom = () => {
     );
   }
 
-  if (gameState === GAME_STATES.PLAYING) {
+  if (effectiveState === GAME_STATES.PLAYING) {
     return (
       <div className="game-room playing">
         {/* Game Header */}
@@ -765,7 +882,7 @@ const GameRoom = () => {
                 ⏱️ Hamle: {turnTimer}s
               </div>
               <div className="turn-indicator">
-                {currentTurn === 'player' ? '🎯 Sizin sıranız' : '🤖 Rakip oynuyor'}
+                {(mpMode ? (mpCurrentTurn === currentUser?.id) : (currentTurn === 'player')) ? '🎯 Sizin sıranız' : '👤 Rakip oynuyor'}
               </div>
             </div>
             
@@ -773,18 +890,18 @@ const GameRoom = () => {
               <div className="score-board">
                 <div className="player-score">
                   <span className="score-label">👤 Sen</span>
-                  <span className="score-value">{score.player}</span>
-                  <span className="letter-count">🎴 {playerLetters.length} harf</span>
+                  <span className="score-value">{mpMode ? (mpScores?.[currentUser?.id] || 0) : score.player}</span>
+                  <span className="letter-count">🎴 {mpMode ? mpRack.length : playerLetters.length} harf</span>
                 </div>
                 <div className="vs-separator">VS</div>
                 <div className="opponent-score">
-                  <span className="score-label">{opponent?.isBot ? '🤖' : '👤'} {opponent?.username}</span>
-                  <span className="score-value">{score.opponent}</span>
-                  <span className="letter-count">🎴 {opponentLetters.length} harf</span>
+                  <span className="score-label">{mpMode ? '👤 Rakip' : (opponent?.isBot ? '🤖' : '👤')} {mpMode ? (partnerId || '') : (opponent?.username || '')}</span>
+                  <span className="score-value">{mpMode ? (partnerId ? (mpScores?.[partnerId] || 0) : 0) : score.opponent}</span>
+                  <span className="letter-count">🎴 {mpMode ? mpOppRackCount : opponentLetters.length} harf</span>
                 </div>
               </div>
               <div className="bag-info">
-                📦 Torbada: {tileBagSnapshot ? Object.values(tileBagSnapshot).reduce((sum, tile) => sum + tile.remaining, 0) : 0} harf
+                📦 Torbada: {mpMode ? (typeof mpTileBagRemaining === 'number' ? mpTileBagRemaining : '-') : (tileBagSnapshot ? Object.values(tileBagSnapshot).reduce((sum, tile) => sum + tile.remaining, 0) : 0)} harf
               </div>
             </div>
             
@@ -804,8 +921,8 @@ const GameRoom = () => {
           />
         )}
 
-        {/* Bag Drawer - TEK ORTAK TILE BAG */}
-        <BagDrawer tileBagSnapshot={tileBagSnapshot} />
+  {/* Bag Drawer - TEK ORTAK TILE BAG (MP modda dağılım bilinmiyor) */}
+  <BagDrawer tileBagSnapshot={mpMode ? undefined : tileBagSnapshot} />
 
         {/* Blank Letter Selection Modal */}
         {blankSelection && (
@@ -834,7 +951,7 @@ const GameRoom = () => {
     );
   }
 
-  if (gameState === GAME_STATES.FINISHED) {
+  if (effectiveState === GAME_STATES.FINISHED) {
     const isWin = score.player > score.opponent;
     
     return (

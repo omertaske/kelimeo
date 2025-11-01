@@ -79,9 +79,9 @@ const router = createBrowserRouter([
         element: <MultiplayerRoom />
       },
       {
-        // Route düzeltmesi: game/:roomId artık MultiplayerRoom’u açıyor
+        // Route geri alındı: game/:roomId artık GameRoom’u açar (özenli UI)
         path: 'game/:roomId',
-        element: <MultiplayerRoom />
+        element: <GameRoom />
       },
       {
         path: 'letters',
