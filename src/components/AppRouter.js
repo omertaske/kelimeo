@@ -5,12 +5,12 @@ import { useAuth } from '../context/AuthContext';
 // Components
 import Layout from '../components/layout/Layout';
 import Auth from '../components/Auth';
-import GameLobby from '../components/GameLobby';
 import RoomSelector from '../components/rooms/RoomSelector';
 import GameRoom from '../components/game/GameRoom';
 import LettersPractice from '../components/game/LettersPractice';
 import Profile from '../components/layout/Profile';
 import MatchmakingScreen from '../components/matchmaking/MatchmakingScreen';
+import MultiplayerRoom from '../components/game/MultiplayerRoom';
 
 // Protected Route Component
 const ProtectedRoute = ({ children }) => {
@@ -64,11 +64,7 @@ const router = createBrowserRouter([
     children: [
       {
         index: true,
-        element: <Navigate to="/lobby" replace />
-      },
-      {
-        path: 'lobby',
-        element: <GameLobby />
+        element: <Navigate to="/rooms" replace />
       },
       {
         path: 'rooms',
@@ -77,6 +73,10 @@ const router = createBrowserRouter([
       {
         path: 'matchmaking/:roomId',
         element: <MatchmakingScreen />
+      },
+      {
+        path: 'mp/:roomId',
+        element: <MultiplayerRoom />
       },
       {
         path: 'game/:roomId',

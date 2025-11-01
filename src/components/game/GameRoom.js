@@ -850,7 +850,7 @@ const GameRoom = () => {
           opponentScore={score.opponent}
           onClose={() => {
             resetGame();
-            navigate('/lobby');
+            navigate('/rooms');
           }}
           onRematch={() => {
             resetGame();

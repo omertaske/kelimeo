@@ -4,6 +4,7 @@ const { Server } = require('socket.io');
 const cors = require('cors');
 const { RoomManager } = require('./roomManager');
 const { setupSocketHandlers } = require('./socketHandlers');
+const { GameStateManager } = require('./gameStateManager');
 
 const app = express();
 const server = http.createServer(app);
@@ -77,8 +78,9 @@ const io = new Server(server, {
   }
 });
 
-// Initialize room manager
+// Initialize managers
 const roomManager = new RoomManager();
+const gameStateManager = new GameStateManager();
 
 // Health check endpoint
 app.get('/health', (req, res) => {
@@ -99,7 +101,7 @@ io.on('connection', (socket) => {
   console.log(`   🧭 UA: ${ua}`);
   
   // Setup all socket event handlers BEFORE any other logic
-  setupSocketHandlers(io, socket, roomManager);
+  setupSocketHandlers(io, socket, roomManager, gameStateManager);
 });
 
 const PORT = process.env.PORT || 4000;
@@ -117,4 +119,4 @@ server.listen(PORT, () => {
   console.log('📋 Allowed origins:', allowedOrigins);
 });
 
-module.exports = { io, roomManager };
+module.exports = { io, roomManager, gameStateManager };

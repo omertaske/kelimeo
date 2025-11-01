@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { useRoomMatchmaking } from '../../services/roomMatchmakingService';
+import { useMatchGame } from '../../services/matchGameService';
 import { useSocket } from '../../context/SocketContext';
 import './MatchmakingScreen.css';
 
@@ -29,6 +30,7 @@ const MatchmakingScreen = () => {
     onQueueStatus,
     onError,
   } = useRoomMatchmaking();
+  const { joinMatch } = useMatchGame();
 
   // Separate effect for event listeners (runs once)
   useEffect(() => {
@@ -40,9 +42,12 @@ const MatchmakingScreen = () => {
       setStatus('matched');
       setMatchData(data);
 
+      // Immediately join the match room on server
+      joinMatch({ matchId: data.matchId, roomId });
+
       // Navigate to game room after 2 seconds
       setTimeout(() => {
-        navigate(`/game/${roomId}`, {
+        navigate(`/mp/${roomId}`, {
           state: {
             matchId: data.matchId,
             partnerId: data.partnerId,
@@ -80,7 +85,7 @@ const MatchmakingScreen = () => {
       cleanupQueueStatus();
       cleanupError();
     };
-  }, [onMatchFound, onMatchCancelled, onQueueStatus, onError, navigate, roomId]);
+  }, [onMatchFound, onMatchCancelled, onQueueStatus, onError, navigate, roomId, joinMatch]);
 
   // Separate effect for joining room (runs when connected)
   useEffect(() => {
