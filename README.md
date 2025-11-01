@@ -68,3 +68,10 @@ This section has moved here: [https://facebook.github.io/create-react-app/docs/d
 ### `npm run build` fails to minify
 
 This section has moved here: [https://facebook.github.io/create-react-app/docs/troubleshooting#npm-run-build-fails-to-minify](https://facebook.github.io/create-react-app/docs/troubleshooting#npm-run-build-fails-to-minify)
+
+---
+
+Deployment note: Redeploy trigger
+
+This line exists to trigger CI/CD redeploys on platforms like Vercel after a forced push or rollback.
+Last update: 2025-11-01 14:50 TRT
