@@ -105,8 +105,8 @@ const RoomSelector = () => {
   const handleJoinRoom = () => {
     if (!selectedRoom) return;
 
-    // Artık sadece navigate et, joinRoom GameRoom component'inde çağrılacak
-    navigate(`/game/${selectedRoom}`);
+    // Navigate to matchmaking screen (socket-based matching)
+    navigate(`/matchmaking/${selectedRoom}`);
   };
 
   if (gameState === GAME_STATES.MATCHING) {

@@ -10,10 +10,20 @@ const server = http.createServer(app);
 
 // Allowed origins for CORS
 const allowedOrigins = [
-  'http://localhost:3000',           // Local development
-  'https://kelimeo.vercel.app',      // Production Vercel
-  'https://*.vercel.app',            // Vercel preview deployments
+  'http://localhost:3000',                          // Local development
+  'http://localhost:5173',                          // Vite local (if needed)
+  'https://kelimeo.vercel.app',                     // Production Vercel
+  'https://kelimeo-git-main-omertaskes-projects.vercel.app', // Vercel git branch
+  'https://kelimeo-git-gh-pages-omertaskes-projects.vercel.app', // Vercel gh-pages branch
 ];
+
+// Add environment variable origins if provided
+if (process.env.ALLOWED_ORIGINS) {
+  const envOrigins = process.env.ALLOWED_ORIGINS.split(',').map(o => o.trim());
+  allowedOrigins.push(...envOrigins);
+}
+
+console.log('🔐 CORS Allowed Origins:', allowedOrigins);
 
 // CORS configuration
 app.use(cors({
@@ -101,8 +111,10 @@ server.listen(PORT, () => {
   ║   📡 Server running on port ${PORT}     ║
   ║   🌐 http://localhost:${PORT}           ║
   ║   ✅ Socket.IO ready                   ║
+  ║   🔐 Allowed origins: ${allowedOrigins.length}               ║
   ╚═══════════════════════════════════════╝
   `);
+  console.log('📋 Allowed origins:', allowedOrigins);
 });
 
 module.exports = { io, roomManager };

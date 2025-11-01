@@ -10,6 +10,7 @@ import RoomSelector from '../components/rooms/RoomSelector';
 import GameRoom from '../components/game/GameRoom';
 import LettersPractice from '../components/game/LettersPractice';
 import Profile from '../components/layout/Profile';
+import MatchmakingScreen from '../components/matchmaking/MatchmakingScreen';
 
 // Protected Route Component
 const ProtectedRoute = ({ children }) => {
@@ -72,6 +73,10 @@ const router = createBrowserRouter([
       {
         path: 'rooms',
         element: <RoomSelector />
+      },
+      {
+        path: 'matchmaking/:roomId',
+        element: <MatchmakingScreen />
       },
       {
         path: 'game/:roomId',
