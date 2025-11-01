@@ -98,12 +98,8 @@ io.on('connection', (socket) => {
   console.log(`   🌍 Origin: ${origin}`);
   console.log(`   🧭 UA: ${ua}`);
   
-  // Setup all socket event handlers
+  // Setup all socket event handlers BEFORE any other logic
   setupSocketHandlers(io, socket, roomManager);
-  
-  socket.on('disconnect', () => {
-    console.log(`🔌 Socket disconnected: ${socket.id}`);
-  });
 });
 
 const PORT = process.env.PORT || 4000;

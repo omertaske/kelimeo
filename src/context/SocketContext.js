@@ -28,50 +28,64 @@ export const SocketProvider = ({ children }) => {
       return;
     }
 
-    // Create socket connection
-    console.log('🔌 Connecting to socket server:', SOCKET_URL);
-    const newSocket = io(SOCKET_URL, {
-      // Prefer websocket, fallback to polling (Render free tier can be slow to wake)
-      transports: ['websocket', 'polling'],
-      // Connection tuning
-      timeout: 15000,               // 15s connect timeout
-      reconnection: true,
-      reconnectionAttempts: 8,
-      reconnectionDelay: 1000,      // start at 1s
-      reconnectionDelayMax: 5000,   // cap at 5s
-      withCredentials: true,
-      // Ensure default path (useful if behind proxies)
-      path: '/socket.io'
-    });
+    // Wake up Render server before connecting (free tier sleeps after inactivity)
+    const wakeUpServer = async () => {
+      try {
+        console.log('⏰ Waking up server...');
+        await fetch(`${SOCKET_URL}/health`, { method: 'GET' });
+        console.log('✅ Server is awake');
+      } catch (err) {
+        console.warn('⚠️ Could not wake server, will try connecting anyway:', err.message);
+      }
+    };
 
-    socketRef.current = newSocket;
-    setSocket(newSocket);
+    wakeUpServer().then(() => {
+      // Create socket connection after server wake-up
+      console.log('🔌 Connecting to socket server:', SOCKET_URL);
+      const newSocket = io(SOCKET_URL, {
+        // Prefer websocket, fallback to polling (Render free tier can be slow to wake)
+        transports: ['websocket', 'polling'],
+        // Connection tuning
+        timeout: 15000,               // 15s connect timeout
+        reconnection: true,
+        reconnectionAttempts: 8,
+        reconnectionDelay: 1000,      // start at 1s
+        reconnectionDelayMax: 5000,   // cap at 5s
+        withCredentials: true,
+        // Ensure default path (useful if behind proxies)
+        path: '/socket.io'
+      });
 
-    // Connection event handlers
-    newSocket.on('connect', () => {
-      console.log('✅ Socket connected:', newSocket.id);
-      setIsConnected(true);
-    });
+      socketRef.current = newSocket;
+      setSocket(newSocket);
 
-    newSocket.on('disconnect', (reason) => {
-      console.log('❌ Socket disconnected:', reason);
-      setIsConnected(false);
-    });
+      // Connection event handlers
+      newSocket.on('connect', () => {
+        console.log('✅ Socket connected:', newSocket.id);
+        console.log('🔗 Socket transport:', newSocket.io.engine.transport.name);
+        setIsConnected(true);
+      });
 
-    newSocket.on('connect_error', (error) => {
-      console.error('🔥 Socket connection error:', error);
-      setIsConnected(false);
+      newSocket.on('disconnect', (reason) => {
+        console.log('❌ Socket disconnected:', reason);
+        setIsConnected(false);
+      });
+
+      newSocket.on('connect_error', (error) => {
+        console.error('🔥 Socket connection error:', error);
+        setIsConnected(false);
+      });
     });
 
     // Cleanup on unmount
     return () => {
-      console.log('🔌 Cleaning up socket connection');
-      newSocket.disconnect();
-      socketRef.current = null;
+      if (socketRef.current) {
+        console.log('🔌 Cleaning up socket connection');
+        socketRef.current.disconnect();
+        socketRef.current = null;
+      }
     };
-  }, [currentUser]);
-
-  /**
+  }, [currentUser]);  /**
    * Enter a room
    * @param {string} roomId 
    * @returns {Promise}
@@ -101,11 +115,11 @@ export const SocketProvider = ({ children }) => {
         userId: currentUser.id,
       });
 
-      // Timeout after 5 seconds
+      // Timeout after 10 seconds (Render free tier can be slow to wake)
       setTimeout(() => {
         socket.off('roomJoined', handleRoomJoined);
         reject(new Error('Room join timeout'));
-      }, 5000);
+      }, 10000);
     });
   };
 
