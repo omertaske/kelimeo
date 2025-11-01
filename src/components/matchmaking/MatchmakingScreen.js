@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { useRoomMatchmaking } from '../../services/roomMatchmakingService';
@@ -18,7 +18,7 @@ const MatchmakingScreen = () => {
   const [queueInfo, setQueueInfo] = useState({ waitingCount: 0 });
   const [matchData, setMatchData] = useState(null);
   const [errorMessage, setErrorMessage] = useState('');
-  const [hasJoinedRoom, setHasJoinedRoom] = useState(false); // Track if already joined
+  const hasJoinedRef = useRef(false); // Track if already joined (stable across renders)
 
   const {
     isConnected,
@@ -101,14 +101,14 @@ const MatchmakingScreen = () => {
     }
 
     // Sadece bir kez join et
-    if (hasJoinedRoom) {
-      console.log('⏭️ Already joined room, skipping...');
+    if (hasJoinedRef.current) {
+      console.log('⏭️ Already joined room (ref), skipping...');
       return;
     }
 
     console.log(`🎮 Starting matchmaking for room: ${roomId}`);
     setStatus('searching');
-    setHasJoinedRoom(true);
+    hasJoinedRef.current = true;
 
     // Odaya gir ve matchmaking başlat
     joinRoomAndMatch(roomId)
@@ -118,23 +118,23 @@ const MatchmakingScreen = () => {
         } else {
           setStatus('error');
           setErrorMessage(result.error || 'Failed to join room');
-          setHasJoinedRoom(false); // Reset on error
+          hasJoinedRef.current = false; // Reset on error
         }
       })
       .catch((err) => {
         console.error('❌ Error joining room:', err);
         setStatus('error');
         setErrorMessage(err.message);
-        setHasJoinedRoom(false); // Reset on error
+        hasJoinedRef.current = false; // Reset on error
       });
 
     // Cleanup: Leave room on unmount
     return () => {
       console.log('🧹 Leaving room on unmount...');
       leaveRoomAndCancel(roomId);
-      setHasJoinedRoom(false);
+      hasJoinedRef.current = false;
     };
-  }, [roomId, currentUser, navigate, isConnected, hasJoinedRoom, joinRoomAndMatch, leaveRoomAndCancel]);
+  }, [roomId, currentUser, navigate, isConnected, joinRoomAndMatch, leaveRoomAndCancel]);
 
   const handleCancel = () => {
     leaveRoomAndCancel(roomId);

@@ -1,5 +1,6 @@
 import { useSocket } from '../context/SocketContext';
 import { useAuth } from '../context/AuthContext';
+import { useCallback } from 'react';
 
 /**
  * Room-based matchmaking service using Socket.IO
@@ -19,7 +20,7 @@ export const useRoomMatchmaking = () => {
    * @param {string} roomId 
    * @returns {Promise<Object>}
    */
-  const joinRoomAndMatch = async (roomId) => {
+  const joinRoomAndMatch = useCallback(async (roomId) => {
     if (!isConnected || !currentUser) {
       throw new Error('Socket not connected or user not logged in');
     }
@@ -45,13 +46,13 @@ export const useRoomMatchmaking = () => {
         error: error.message,
       };
     }
-  };
+  }, [isConnected, currentUser, enterRoom, setActive]);
 
   /**
    * Leave room and cancel matchmaking
    * @param {string} roomId 
    */
-  const leaveRoomAndCancel = (roomId) => {
+  const leaveRoomAndCancel = useCallback((roomId) => {
     if (!isConnected || !currentUser) return;
 
     console.log(`📤 Leaving room: ${roomId}`);
@@ -61,14 +62,14 @@ export const useRoomMatchmaking = () => {
     
     // Then leave room
     leaveRoom(roomId);
-  };
+  }, [isConnected, currentUser, cancelMatchmaking, leaveRoom]);
 
   /**
    * Listen for match found
    * @param {Function} callback - Called when match is found
    * @returns {Function} Cleanup function
    */
-  const onMatchFound = (callback) => {
+  const onMatchFound = useCallback((callback) => {
     const handler = (data) => {
       console.log('🎉 Match found!', data);
       callback(data);
@@ -78,14 +79,14 @@ export const useRoomMatchmaking = () => {
     
     // Return cleanup function
     return () => off('matched', handler);
-  };
+  }, [on, off]);
 
   /**
    * Listen for match cancelled
    * @param {Function} callback 
    * @returns {Function} Cleanup function
    */
-  const onMatchCancelled = (callback) => {
+  const onMatchCancelled = useCallback((callback) => {
     const handler = (data) => {
       console.log('❌ Match cancelled:', data);
       callback(data);
@@ -94,14 +95,14 @@ export const useRoomMatchmaking = () => {
     on('matchCancelled', handler);
     
     return () => off('matchCancelled', handler);
-  };
+  }, [on, off]);
 
   /**
    * Listen for queue status updates
    * @param {Function} callback 
    * @returns {Function} Cleanup function
    */
-  const onQueueStatus = (callback) => {
+  const onQueueStatus = useCallback((callback) => {
     const handler = (data) => {
       console.log('⏳ Queue status:', data);
       callback(data);
@@ -110,14 +111,14 @@ export const useRoomMatchmaking = () => {
     on('queueStatus', handler);
     
     return () => off('queueStatus', handler);
-  };
+  }, [on, off]);
 
   /**
    * Listen for errors
    * @param {Function} callback 
    * @returns {Function} Cleanup function
    */
-  const onError = (callback) => {
+  const onError = useCallback((callback) => {
     const handler = (data) => {
       console.error('🔥 Socket error:', data);
       callback(data);
@@ -126,7 +127,7 @@ export const useRoomMatchmaking = () => {
     on('error', handler);
     
     return () => off('error', handler);
-  };
+  }, [on, off]);
 
   return {
     socket,
