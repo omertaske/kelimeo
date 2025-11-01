@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useGame } from '../../context/GameContext';
 import { useAuth } from '../../context/AuthContext';
+import { useSocket } from '../../context/SocketContext';
 import './RoomSelector.css';
 
 const RoomSelector = () => {
@@ -16,6 +17,8 @@ const RoomSelector = () => {
   const [startPos, setStartPos] = useState(0);
   const [currentTranslate, setCurrentTranslate] = useState(0);
   const [prevTranslate, setPrevTranslate] = useState(0);
+  const { isConnected, getAllRoomsStatus, on, off } = useSocket();
+  const [roomsStatus, setRoomsStatus] = useState(null);
 
   const selectedBoard = selectedRoom ? Object.values(BOARD_TYPES).find(b => b.id === selectedRoom) : null;
   
@@ -82,8 +85,26 @@ const RoomSelector = () => {
   };
 
   useEffect(() => {
-    // Simüle edilmiş online kullanıcılar - artık gerekli değil
-  }, []);
+    // Rooms status subscribe
+    const handler = (status) => {
+      setRoomsStatus(status);
+    };
+    on('roomsStatus', handler);
+
+    // Initial fetch when connected
+    if (isConnected) {
+      getAllRoomsStatus();
+    }
+
+    const interval = setInterval(() => {
+      getAllRoomsStatus();
+    }, 5000);
+
+    return () => {
+      off('roomsStatus', handler);
+      clearInterval(interval);
+    };
+  }, [on, off, isConnected, getAllRoomsStatus]);
 
   const handleRoomSelect = (boardType) => {
     setSelectedRoom(boardType);
@@ -185,7 +206,9 @@ const RoomSelector = () => {
             cursor: 'grab'
           }}
         >
-          {roomsArray.map((room) => (
+          {roomsArray.map((room) => {
+            const roomStats = roomsStatus?.rooms?.[room.id] || { waitingCount: 0, playingCount: 0, total: 0 };
+            return (
             <div 
               key={room.id}
               className={`room-card ${selectedRoom === room.id ? 'selected' : ''}`}
@@ -200,6 +223,10 @@ const RoomSelector = () => {
                 <p className="room-description">{room.description}</p>
                 <div className="room-rank-badge" style={{ backgroundColor: room.color }}>
                   {room.rank}
+                </div>
+                <div className="room-live-stats" style={{ marginTop: 8, display: 'flex', gap: 8, justifyContent: 'center', flexWrap: 'wrap' }}>
+                  <span className="badge waiting" title="Müsait (eşleşme bekleyen)">🟢 Müsait: {roomStats.waitingCount}</span>
+                  <span className="badge playing" title="Oynuyor (maçta)">🟡 Oynuyor: {roomStats.playingCount}</span>
                 </div>
               </div>
 
@@ -242,7 +269,7 @@ const RoomSelector = () => {
                 </button>
               </div>
             </div>
-          ))}
+          )})}
         </div>
 
         <button 
@@ -253,6 +280,20 @@ const RoomSelector = () => {
         >
           ▶
         </button>
+      </div>
+
+      {/* Global Rooms Stats */}
+      <div className="rooms-global-stats" style={{ textAlign: 'center', marginTop: 16 }}>
+        <strong>Şu an odalarda:</strong>
+        <span style={{ marginLeft: 8 }}>
+          Toplam Kullanıcı: {roomsStatus?.totals?.total || 0}
+        </span>
+        <span style={{ marginLeft: 12 }}>
+          🟢 Müsait: {roomsStatus?.totals?.waiting || 0}
+        </span>
+        <span style={{ marginLeft: 12 }}>
+          🟡 Oynuyor: {roomsStatus?.totals?.playing || 0}
+        </span>
       </div>
 
       {/* Slider Indicators */}

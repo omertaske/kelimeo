@@ -10,6 +10,11 @@ const matchDebouncer = new MatchDebouncer(500);
  * @param {Object} roomManager - Room manager instance
  */
 function setupSocketHandlers(io, socket, roomManager) {
+  // Helper: broadcast rooms status to all clients
+  const broadcastRoomsStatus = () => {
+    const status = roomManager.getAllRoomsStatus();
+    io.emit('roomsStatus', status);
+  };
   
   /**
    * User enters a room
@@ -51,11 +56,15 @@ function setupSocketHandlers(io, socket, roomManager) {
       });
       
       console.log(`   🔔 Scheduling match attempt (debounced 500ms)...`);
+      // Broadcast status now
+      broadcastRoomsStatus();
       console.log(`===================================\n`);
       
       // Trigger matching with debounce (batches rapid joins)
       matchDebouncer.scheduleMatch(roomId, async () => {
         await matchRoom(roomId, roomManager, io);
+        // After matching, broadcast status again (waiting/playing changed)
+        broadcastRoomsStatus();
       });
       
     } catch (error) {
@@ -111,8 +120,10 @@ function setupSocketHandlers(io, socket, roomManager) {
         socket.data.currentRoom = null;
       }
       
-      // Send confirmation
+  // Send confirmation
       socket.emit('roomLeft', { roomId, userId });
+  // Broadcast status after leave
+  broadcastRoomsStatus();
       
     } catch (error) {
       console.error('❌ Error in leaveRoom:', error);
@@ -150,9 +161,15 @@ function setupSocketHandlers(io, socket, roomManager) {
       // Trigger matching if user became active
       if (active) {
         console.log(`   🔔 Scheduling match attempt (debounced 500ms)...`);
+        // Broadcast immediate status change
+        broadcastRoomsStatus();
         matchDebouncer.scheduleMatch(roomId, async () => {
           await matchRoom(roomId, roomManager, io);
+          broadcastRoomsStatus();
         });
+      } else {
+        // If user became inactive, broadcast status too
+        broadcastRoomsStatus();
       }
       
       console.log(`===================================\n`);
@@ -249,6 +266,19 @@ function setupSocketHandlers(io, socket, roomManager) {
       
     } catch (error) {
       console.error('❌ Error in getRoomStatus:', error);
+    }
+  });
+
+  /**
+   * Get all rooms status (aggregate)
+   * Event: 'getAllRoomsStatus'
+   */
+  socket.on('getAllRoomsStatus', () => {
+    try {
+      const status = roomManager.getAllRoomsStatus();
+      socket.emit('roomsStatus', status);
+    } catch (error) {
+      console.error('❌ Error in getAllRoomsStatus:', error);
     }
   });
 

@@ -31,10 +31,17 @@ export const SocketProvider = ({ children }) => {
     // Create socket connection
     console.log('🔌 Connecting to socket server:', SOCKET_URL);
     const newSocket = io(SOCKET_URL, {
+      // Prefer websocket, fallback to polling (Render free tier can be slow to wake)
       transports: ['websocket', 'polling'],
+      // Connection tuning
+      timeout: 15000,               // 15s connect timeout
       reconnection: true,
-      reconnectionDelay: 1000,
-      reconnectionAttempts: 5,
+      reconnectionAttempts: 8,
+      reconnectionDelay: 1000,      // start at 1s
+      reconnectionDelayMax: 5000,   // cap at 5s
+      withCredentials: true,
+      // Ensure default path (useful if behind proxies)
+      path: '/socket.io'
     });
 
     socketRef.current = newSocket;
@@ -179,6 +186,14 @@ export const SocketProvider = ({ children }) => {
   };
 
   /**
+   * Get all rooms status (aggregate)
+   */
+  const getAllRoomsStatus = () => {
+    if (!socket) return;
+    socket.emit('getAllRoomsStatus');
+  };
+
+  /**
    * Subscribe to socket events
    * @param {string} event 
    * @param {Function} callback 
@@ -208,6 +223,7 @@ export const SocketProvider = ({ children }) => {
     cancelMatchmaking,
     acceptMatch,
     getRoomStatus,
+    getAllRoomsStatus,
     on,
     off,
   };

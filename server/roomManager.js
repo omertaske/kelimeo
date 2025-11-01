@@ -255,6 +255,34 @@ class RoomManager {
     
     return stats;
   }
+
+  /**
+   * Get computed status for a room (waiting/playing/total)
+   * waiting = users in activeUsers set (match bekleyen)
+   * playing = users in matches (2 per match)
+   */
+  getRoomStatus(roomId) {
+    const room = this.getRoom(roomId);
+    const waitingCount = room.activeUsers.size;
+    const playingCount = room.matches.size * 2;
+    const total = waitingCount + playingCount;
+    return { roomId, waitingCount, playingCount, total };
+  }
+
+  /**
+   * Get status for all rooms and global totals
+   */
+  getAllRoomsStatus() {
+    const result = { rooms: {}, totals: { waiting: 0, playing: 0, total: 0 } };
+    for (const [roomId] of this.rooms) {
+      const status = this.getRoomStatus(roomId);
+      result.rooms[roomId] = status;
+      result.totals.waiting += status.waitingCount;
+      result.totals.playing += status.playingCount;
+      result.totals.total += status.total;
+    }
+    return result;
+  }
 }
 
 module.exports = { RoomManager };
