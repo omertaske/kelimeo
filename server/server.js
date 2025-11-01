@@ -119,4 +119,4 @@ server.listen(PORT, () => {
   console.log('📋 Allowed origins:', allowedOrigins);
 });
 
-module.exports = { io, roomManager, gameStateManager };
+module.exports = { io, roomManager, gameStateManager, server };

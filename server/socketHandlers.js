@@ -10,6 +10,8 @@ const matchDebouncer = new MatchDebouncer(500);
  * @param {Object} roomManager - Room manager instance
  */
 function setupSocketHandlers(io, socket, roomManager, gameStateManager) {
+  const { validateWords } = require('./services/dictionaryService');
+  const { toUpperCaseTurkish } = require('./utils/stringUtils');
   // Timers
   const turnTimers = new Map(); // matchId -> timeoutId
   const disconnectTimers = new Map(); // `${matchId}:${userId}` -> timeoutId
@@ -385,8 +387,9 @@ function setupSocketHandlers(io, socket, roomManager, gameStateManager) {
         status: state.status,
       };
 
-      // If both joined → game_ready to both, else waiting_opponent to joiner
+      // If both joined → initialize racks/board and game_ready to both, else waiting_opponent to joiner
       if (gameStateManager.bothJoined(matchId)) {
+        gameStateManager.initializeIfReady(matchId);
         io.to(matchId).emit('game_ready', {
           matchId,
           roomId,
@@ -405,7 +408,7 @@ function setupSocketHandlers(io, socket, roomManager, gameStateManager) {
   });
 
   // place_tiles
-  socket.on('place_tiles', ({ matchId, roomId, userId, move }) => {
+  socket.on('place_tiles', async ({ matchId, roomId, userId, move }) => {
     try {
       const match = roomManager.getMatch(roomId, matchId);
       if (!match) {
@@ -421,12 +424,46 @@ function setupSocketHandlers(io, socket, roomManager, gameStateManager) {
         return;
       }
 
-      const { state, safeMove } = gameStateManager.applyMove(matchId, userId, move || { type: 'place_tiles', tiles: [] });
+      // Sunucu-otorite: client puanını yok say, sözlük doğrulaması yap (varsa)
+      const words = Array.isArray(move?.meta?.words) ? move.meta.words.map(w => toUpperCaseTurkish(String(w || ''))) : [];
+      if (words.length > 0) {
+        const { allValid, details } = await validateWords(words);
+        if (!allValid) {
+          socket.emit('match_error', { message: 'Geçersiz kelime', code: 'INVALID_WORD', details });
+          return;
+        }
+      }
 
-      // Broadcast state patch
+      let result;
+      if (Array.isArray(move?.tiles) && move.tiles.length) {
+        // Otoriter hamle: tiles + (opsiyonel) words ve positions beklenir
+        const validated = (move?.meta?.validatedWords && Array.isArray(move.meta.validatedWords))
+          ? move.meta.validatedWords
+          : (words.length ? words.map(w => ({ word: w, positions: move.tiles.map(t => ({ row: t.row, col: t.col })) })) : []);
+        result = gameStateManager.applyAuthoritativeMove(matchId, userId, move, validated);
+      } else {
+        // Geriye dönük: sadece words geldiyse minimal skorla işleme al
+        const serverPoints = words.reduce((sum, w) => sum + (w ? w.length : 0), 0);
+        const serverMove = {
+          ...(move || { type: 'place_tiles', tiles: [] }),
+          meta: {
+            ...(move?.meta || {}),
+            points: serverPoints,
+          }
+        };
+        result = gameStateManager.applyMove(matchId, userId, serverMove);
+      }
+
+      const { state, safeMove } = result;
+
+      // Broadcast state patch (boardDiff = placed tiles), plus updated scores
       io.to(matchId).emit('state_patch', {
         matchId,
         move: safeMove,
+        boardDiff: Array.isArray(safeMove?.tiles) ? safeMove.tiles.map(t => ({ row: t.row, col: t.col, letter: t.isBlank ? (t.repr || t.letter) : t.letter, isBlank: !!t.isBlank, blankAs: t.isBlank ? (t.repr || t.letter) : null })) : [],
+        scores: state.scores,
+        currentTurn: state.currentTurn,
+        tileBagRemaining: state.tileBag?.remaining?.() ?? undefined,
       });
 
       // Notify turn change
@@ -508,6 +545,11 @@ function setupSocketHandlers(io, socket, roomManager, gameStateManager) {
         socket.emit('match_error', { message: 'State not found', code: 'INVALID_STATE' });
         return;
       }
+      const me = socket.data.userId;
+      const { player1, player2 } = state.players || {};
+      const opponent = me === player1 ? player2 : player1;
+      const myRack = state.racks?.[me] || [];
+      const opponentRackCount = (state.racks?.[opponent] || []).length;
       socket.emit('full_state', {
         id: state.id,
         roomId: state.roomId,
@@ -518,6 +560,9 @@ function setupSocketHandlers(io, socket, roomManager, gameStateManager) {
         startedAt: state.startedAt,
         lastMoveAt: state.lastMoveAt,
         status: state.status,
+        board: state.board,
+        rack: { me: myRack, opponentCount: opponentRackCount },
+        tileBagRemaining: state.tileBag?.remaining?.() ?? undefined,
       });
     } catch (error) {
       console.error('❌ Error in request_full_state:', error);

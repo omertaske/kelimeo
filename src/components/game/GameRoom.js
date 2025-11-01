@@ -220,17 +220,12 @@ const GameRoom = () => {
     if (cell.letter && cell.owner && gameState === GAME_STATES.PLAYING) {
       const word = findWordAtCell(row, col);
       if (word && word.length >= 2) {
-        // Eğer kelime anlamı cachede varsa göster
-        if (wordMeanings[word]) {
-          // Mavi toast mesajı olarak göster (5 saniye)
-          setToastMessage({ 
-            text: `📖 ${word}: ${wordMeanings[word]}`, 
-            type: 'blue',
-            duration: 5000
-          });
+        // Eğer kelime anlamı cache'de varsa göster, yoksa TDK'dan getir
+        const cached = wordMeanings && wordMeanings[word];
+        if (cached) {
+          setToastMessage({ text: `📖 ${word}: ${cached}`, type: 'blue', duration: 5000 });
           playSound('toastKelimeAnlami', 0.4);
         } else {
-          // TDK'dan anlamı al
           fetchWordMeaning(word);
         }
       }

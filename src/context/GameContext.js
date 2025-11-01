@@ -195,7 +195,11 @@ export const GameProvider = ({ children }) => {
             letter: null,
             multiplier: null,
             isCenter: false,
-            owner: null // 'player' veya 'opponent'
+            owner: null, // 'player' veya 'opponent'
+            // Premium kare kullanımının kalıcı işaretlenmesi ve joker temsili için alanlar
+            usedMultipliers: false,
+            isBlank: false,
+            blankAs: null
           }))
       );
 
@@ -721,12 +725,17 @@ export const GameProvider = ({ children }) => {
       
       // placedTiles kullan - blank için repr kullan
       placedTiles.forEach(({ letter, row, col, isBlank, repr }) => {
+        const prevCell = newBoard[row][col] || {};
+        const hadMultiplier = !!prevCell.multiplier;
         newBoard[row][col] = {
-          ...newBoard[row][col],
+          ...prevCell,
           letter: isBlank ? repr : letter, // Blank ise repr harfi görünsün
           owner: 'player',
           isBlank: isBlank || false, // Tahtada blank olduğunu işaretle
-          value: isBlank ? 0 : (LETTER_SCORES[letter] || 0)
+          blankAs: isBlank ? (repr || null) : null,
+          value: isBlank ? 0 : (LETTER_SCORES[letter] || 0),
+          // Bu kare bir premium ise ve ilk kez kullanılıyorsa işaretle
+          usedMultipliers: prevCell.usedMultipliers || hadMultiplier ? true : false
         };
       });
       

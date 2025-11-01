@@ -24,10 +24,14 @@ const MultiplayerRoom = () => {
   const [role, setRole] = useState(initialData.role);
 
   const [scores, setScores] = useState({});
+  const [board, setBoard] = useState([]);
+  const [myRack, setMyRack] = useState([]);
+  const [opponentRackCount, setOpponentRackCount] = useState(0);
   const [currentTurn, setCurrentTurn] = useState(null);
   const [status, setStatus] = useState('waiting');
   const [moves, setMoves] = useState([]);
   const [info, setInfo] = useState('Bağlanılıyor...');
+  const [tileBagRemaining, setTileBagRemaining] = useState();
 
   // Join on mount or when reconnected
   useEffect(() => {
@@ -68,10 +72,30 @@ const MultiplayerRoom = () => {
       setScores(payload.state?.scores || {});
       setCurrentTurn(payload.state?.currentTurn || null);
     });
-    const c2 = onStatePatch(({ move }) => {
+    const c2 = onStatePatch(({ move, boardDiff, scores: newScores, tileBagRemaining: tbr, currentTurn: newTurn }) => {
       setMoves((m) => [...m.slice(-9), move]);
-      if (typeof move?.meta?.points === 'number') {
-        setScores((s) => ({ ...s, [move.by]: (s[move.by] || 0) + move.meta.points }));
+      if (newScores) setScores(newScores);
+      if (typeof tbr === 'number') setTileBagRemaining(tbr);
+      if (newTurn) setCurrentTurn(newTurn);
+      if (Array.isArray(boardDiff) && boardDiff.length) {
+        setBoard(prev => {
+          if (!prev || prev.length === 0) return prev;
+          const next = prev.map(r => r.map(c => ({ ...c })));
+          boardDiff.forEach(({ row, col, letter, isBlank, blankAs }) => {
+            const cell = next[row]?.[col];
+            if (!cell) return;
+            const hadMult = !!cell.multiplier;
+            next[row][col] = {
+              ...cell,
+              letter,
+              owner: move?.by,
+              isBlank: !!isBlank,
+              blankAs: blankAs || (isBlank ? letter : null),
+              usedMultipliers: cell.usedMultipliers || hadMult ? true : false,
+            };
+          });
+          return next;
+        });
       }
     });
     const c3 = onTurnChanged(({ currentTurn, reason }) => {
@@ -93,6 +117,12 @@ const MultiplayerRoom = () => {
       setCurrentTurn(full.currentTurn || null);
       setStatus(full.status || 'playing');
       setMoves(full.moves || []);
+      if (Array.isArray(full.board)) setBoard(full.board);
+      if (full.rack) {
+        setMyRack(full.rack.me || []);
+        setOpponentRackCount(full.rack.opponentCount || 0);
+      }
+      if (typeof full.tileBagRemaining === 'number') setTileBagRemaining(full.tileBagRemaining);
       setInfo('Senkronize edildi');
     });
 
@@ -124,9 +154,10 @@ const MultiplayerRoom = () => {
 
   const handlePlaceTiles = () => {
     if (!matchId) return;
-    // Minimal demo move: +Random puan
-    const points = Math.ceil(Math.random() * 10);
-    placeTiles({ matchId, roomId, move: { type: 'place_tiles', tiles: [], meta: { points } } });
+    // Demo: merkez hücreye 'A' koy (uygunsa)
+    const size = board?.length || 15;
+    const center = Math.floor(size / 2);
+    placeTiles({ matchId, roomId, move: { type: 'place_tiles', tiles: [{ row: center, col: center, letter: 'A', isBlank: false }], meta: { words: ['A'] } } });
   };
   const handlePass = () => {
     if (!matchId) return;
@@ -149,12 +180,28 @@ const MultiplayerRoom = () => {
           <div>id: {myId}</div>
           <div>Skor: {myScore}</div>
           <div>{myTurn ? 'Sıra: Ben' : 'Sıra: Rakip'}</div>
+          <div>Raf: {myRack.join(' ')}</div>
         </div>
         <div className="score-card">
           <strong>Rakip</strong>
           <div>id: {oppId || '-'}</div>
           <div>Skor: {oppScore}</div>
+          <div>Raf: {opponentRackCount} taş</div>
         </div>
+        <div className="score-card">
+          <strong>Torba</strong>
+          <div>Kalan: {typeof tileBagRemaining === 'number' ? tileBagRemaining : '-'}</div>
+        </div>
+      </div>
+
+      <div style={{ display: 'grid', gap: 2, gridTemplateColumns: `repeat(${board?.[0]?.length || 15}, 28px)`, marginBottom: 16 }}>
+        {(board && board.length ? board : Array.from({ length: 15 }, () => Array.from({ length: 15 }, () => ({})))).map((row, rIdx) =>
+          row.map((cell, cIdx) => (
+            <div key={`${rIdx}-${cIdx}`} style={{ width: 28, height: 28, border: '1px solid #ccc', display: 'flex', alignItems: 'center', justifyContent: 'center', background: cell.letter ? '#fafafa' : '#fff', fontSize: 12 }}>
+              {cell.letter || ''}
+            </div>
+          ))
+        )}
       </div>
 
       <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>

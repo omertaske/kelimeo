@@ -73,7 +73,10 @@
     - state: { id, roomId, scores: { [userId]: number }, currentTurn, startedAt }
   - state_patch
     - matchId: string
-    - move: { type: 'place_tiles', tiles: [...], meta: { ts: iso } }
+    - move: { type: 'place_tiles', tiles: [...], meta: { ts: iso, points } }
+    - boardDiff: Array<{ row, col, letter, isBlank, blankAs }>
+    - scores: { [userId]: number }
+    - tileBagRemaining?: number
   - turn_changed
     - matchId: string
     - currentTurn: userId
@@ -92,6 +95,11 @@
   - (Opsiyonel) waiting_opponent
     - matchId: string
     - roomId: string
+  - (Opsiyonel) full_state
+    - id, roomId, players, scores, currentTurn, moves, startedAt, lastMoveAt, status
+    - board: Cell[15][15]
+    - rack: { me: string[], opponentCount: number }
+    - tileBagRemaining?: number
 
 - Client → Server
   - join_match: { matchId: string, roomId: string, userId: string }
@@ -112,7 +120,7 @@
   - [x] moves: [] (opsiyonel; son N hamle)
   - [x] startedAt, lastMoveAt
   - [x] status: 'waiting' | 'playing' | 'finished'
-  - [ ] (Opsiyonel) board/tiles/rack gibi oyun-özel alanlar
+  - [x] (Opsiyonel) board/tiles/rack gibi oyun-özel alanlar
 
 ## Kurallar ve Kenar Durumları
 
@@ -136,7 +144,7 @@
 
 ## Opsiyonel İyileştirmeler
 
-- [ ] Hamle doğrulama ve puanlama sunucuda (otorite sunucu).
+ - [x] Hamle doğrulama ve puanlama sunucuda (otorite sunucu).
 - [ ] moveId + sunucu ACK ile “en az bir kez” teslim garantisi.
 - [ ] Kalıcılık (Redis/DB) ile crash sonrası oyunu sürdürme.
 - [ ] Spekülatif UI: client hamleyi anında uygular; state_patch ile kesinler, uyuşmazlıkta rollback.

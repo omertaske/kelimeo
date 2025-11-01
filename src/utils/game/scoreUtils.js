@@ -25,8 +25,10 @@ export const calculateScore = (word, positions, board) => {
         // Premium kare SADECE boş ise veya bu turda yerleştirildiyse bonus ver
         // Eğer hücrede zaten harf varsa (letter !== null ve owner var), bonus verme
         const isNewTile = !cell?.letter || !cell?.owner;
+        const multiplierAlreadyUsed = !!cell?.usedMultipliers;
         
-        if (isNewTile) {
+        // Eğer multiplier daha önce kullanıldıysa (kalıcı işaret) tekrar uygulama
+        if (isNewTile && !multiplierAlreadyUsed) {
           if (type === 'TW') {
             wordMultiplier *= 3;
             bonuses.push('3x Kelime');

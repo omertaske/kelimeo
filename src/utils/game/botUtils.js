@@ -1,6 +1,6 @@
 // Yalnızca şu dosyadan kelimeleri al:
 // Not: Dosya adında "ı" (dotless i) harfi kullanıcı isteğine göre kullanılmıştır.
-import { TURKISH_WORD_POOL } from './turkıshWordPool';
+import { TURKISH_WORD_POOL } from './turkishWordPool';
 import { toUpperCaseTurkish } from '../../helpers/stringHelpers';
 
 // Yardımcı: Rastgele seçim (güvenli)
