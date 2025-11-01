@@ -18,10 +18,14 @@ function setupSocketHandlers(io, socket, roomManager) {
    */
   socket.on('enterRoom', async ({ roomId, userId }) => {
     try {
-      console.log(`📥 enterRoom: ${userId} -> ${roomId} (socket: ${socket.id})`);
+      console.log(`\n📥 ========== ENTER ROOM ==========`);
+      console.log(`   User: ${userId}`);
+      console.log(`   Room: ${roomId}`);
+      console.log(`   Socket: ${socket.id}`);
       
       // Validate room exists
       if (!roomManager.hasRoom(roomId)) {
+        console.log(`   ❌ Room ${roomId} does not exist`);
         socket.emit('error', { message: `Room ${roomId} does not exist` });
         return;
       }
@@ -36,12 +40,18 @@ function setupSocketHandlers(io, socket, roomManager) {
       socket.data.userId = userId;
       socket.data.currentRoom = roomId;
       
+      const activeCount = roomManager.getActiveUserCount(roomId);
+      console.log(`   ✅ User added to room. Active count: ${activeCount}`);
+      
       // Send confirmation
       socket.emit('roomJoined', {
         roomId,
         userId,
-        activeCount: roomManager.getActiveUserCount(roomId)
+        activeCount
       });
+      
+      console.log(`   🔔 Scheduling match attempt (debounced 500ms)...`);
+      console.log(`===================================\n`);
       
       // Trigger matching with debounce (batches rapid joins)
       matchDebouncer.scheduleMatch(roomId, async () => {
@@ -117,9 +127,13 @@ function setupSocketHandlers(io, socket, roomManager) {
    */
   socket.on('setActive', async ({ roomId, userId, active }) => {
     try {
-      console.log(`🎯 setActive: ${userId} in ${roomId} = ${active}`);
+      console.log(`\n🎯 ========== SET ACTIVE ==========`);
+      console.log(`   User: ${userId}`);
+      console.log(`   Room: ${roomId}`);
+      console.log(`   Active: ${active}`);
       
       if (!roomManager.hasRoom(roomId)) {
+        console.log(`   ❌ Room ${roomId} does not exist`);
         socket.emit('error', { message: `Room ${roomId} does not exist` });
         return;
       }
@@ -127,15 +141,21 @@ function setupSocketHandlers(io, socket, roomManager) {
       // Set user active status
       roomManager.setUserActive(roomId, userId, active);
       
+      const activeCount = roomManager.getActiveUserCount(roomId);
+      console.log(`   ✅ User set to ${active ? 'ACTIVE' : 'INACTIVE'}. Active count: ${activeCount}`);
+      
       // Send confirmation
       socket.emit('activeStatusChanged', { roomId, userId, active });
       
       // Trigger matching if user became active
       if (active) {
+        console.log(`   🔔 Scheduling match attempt (debounced 500ms)...`);
         matchDebouncer.scheduleMatch(roomId, async () => {
           await matchRoom(roomId, roomManager, io);
         });
       }
+      
+      console.log(`===================================\n`);
       
     } catch (error) {
       console.error('❌ Error in setActive:', error);

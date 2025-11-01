@@ -7,12 +7,18 @@ import reportWebVitals from './reportWebVitals';
 import { store } from './store';
 
 const root = ReactDOM.createRoot(document.getElementById('root'));
+
+// Strict mode sadece development'da aktif
+const AppWrapper = process.env.NODE_ENV === 'development' 
+  ? ({ children }) => <React.StrictMode>{children}</React.StrictMode>
+  : ({ children }) => <>{children}</>;
+
 root.render(
-  <React.StrictMode>
+  <AppWrapper>
     <Provider store={store}>
       <App />
     </Provider>
-  </React.StrictMode>
+  </AppWrapper>
 );
 
 // If you want to start measuring performance in your app, pass a function

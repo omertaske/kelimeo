@@ -16,6 +16,7 @@ const MatchmakingScreen = () => {
   const [queueInfo, setQueueInfo] = useState({ waitingCount: 0 });
   const [matchData, setMatchData] = useState(null);
   const [errorMessage, setErrorMessage] = useState('');
+  const [hasJoinedRoom, setHasJoinedRoom] = useState(false); // Track if already joined
 
   const {
     isConnected,
@@ -27,41 +28,9 @@ const MatchmakingScreen = () => {
     onError,
   } = useRoomMatchmaking();
 
+  // Separate effect for event listeners (runs once)
   useEffect(() => {
-    if (!currentUser) {
-      navigate('/auth');
-      return;
-    }
-
-    if (!roomId) {
-      navigate('/rooms');
-      return;
-    }
-
-    // Socket bağlantısı kurulana kadar bekle
-    if (!isConnected) {
-      setStatus('connecting');
-      return;
-    }
-
-    console.log(`🎮 Starting matchmaking for room: ${roomId}`);
-    setStatus('searching');
-
-    // Odaya gir ve matchmaking başlat
-    joinRoomAndMatch(roomId)
-      .then((result) => {
-        if (result.success) {
-          console.log('✅ Joined room successfully:', result);
-        } else {
-          setStatus('error');
-          setErrorMessage(result.error || 'Failed to join room');
-        }
-      })
-      .catch((err) => {
-        console.error('❌ Error joining room:', err);
-        setStatus('error');
-        setErrorMessage(err.message);
-      });
+    console.log('🎧 Setting up event listeners...');
 
     // Listen for match found
     const cleanupMatchFound = onMatchFound((data) => {
@@ -86,7 +55,6 @@ const MatchmakingScreen = () => {
       console.log('❌ Match cancelled:', data);
       setStatus('searching');
       setMatchData(null);
-      // Kullanıcı tekrar kuyruğa eklendi
     });
 
     // Listen for queue status
@@ -102,16 +70,69 @@ const MatchmakingScreen = () => {
       setErrorMessage(data.message);
     });
 
-    // Cleanup on unmount
+    // Cleanup only on unmount
     return () => {
-      console.log('🧹 Cleaning up matchmaking...');
+      console.log('🧹 Cleaning up event listeners...');
       cleanupMatchFound();
       cleanupMatchCancelled();
       cleanupQueueStatus();
       cleanupError();
-      leaveRoomAndCancel(roomId);
     };
-  }, [roomId, currentUser, navigate, isConnected, joinRoomAndMatch, leaveRoomAndCancel, onMatchFound, onMatchCancelled, onQueueStatus, onError]);
+  }, [onMatchFound, onMatchCancelled, onQueueStatus, onError, navigate, roomId]);
+
+  // Separate effect for joining room (runs when connected)
+  useEffect(() => {
+    if (!currentUser) {
+      navigate('/auth');
+      return;
+    }
+
+    if (!roomId) {
+      navigate('/rooms');
+      return;
+    }
+
+    // Socket bağlantısı kurulana kadar bekle
+    if (!isConnected) {
+      setStatus('connecting');
+      return;
+    }
+
+    // Sadece bir kez join et
+    if (hasJoinedRoom) {
+      console.log('⏭️ Already joined room, skipping...');
+      return;
+    }
+
+    console.log(`🎮 Starting matchmaking for room: ${roomId}`);
+    setStatus('searching');
+    setHasJoinedRoom(true);
+
+    // Odaya gir ve matchmaking başlat
+    joinRoomAndMatch(roomId)
+      .then((result) => {
+        if (result.success) {
+          console.log('✅ Joined room successfully:', result);
+        } else {
+          setStatus('error');
+          setErrorMessage(result.error || 'Failed to join room');
+          setHasJoinedRoom(false); // Reset on error
+        }
+      })
+      .catch((err) => {
+        console.error('❌ Error joining room:', err);
+        setStatus('error');
+        setErrorMessage(err.message);
+        setHasJoinedRoom(false); // Reset on error
+      });
+
+    // Cleanup: Leave room on unmount
+    return () => {
+      console.log('🧹 Leaving room on unmount...');
+      leaveRoomAndCancel(roomId);
+      setHasJoinedRoom(false);
+    };
+  }, [roomId, currentUser, navigate, isConnected, hasJoinedRoom, joinRoomAndMatch, leaveRoomAndCancel]);
 
   const handleCancel = () => {
     leaveRoomAndCancel(roomId);
