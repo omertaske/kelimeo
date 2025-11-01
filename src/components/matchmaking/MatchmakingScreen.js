@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { useRoomMatchmaking } from '../../services/roomMatchmakingService';
+import { useSocket } from '../../context/SocketContext';
 import './MatchmakingScreen.css';
 
 /**
@@ -12,6 +13,7 @@ const MatchmakingScreen = () => {
   const { roomId } = useParams();
   const navigate = useNavigate();
   const { currentUser } = useAuth();
+  const { socket } = useSocket();
   const [status, setStatus] = useState('connecting'); // connecting, searching, matched, error
   const [queueInfo, setQueueInfo] = useState({ waitingCount: 0 });
   const [matchData, setMatchData] = useState(null);
@@ -163,6 +165,11 @@ const MatchmakingScreen = () => {
             )}
             <div className="room-info">
               <span className="room-badge">{roomId}</span>
+            </div>
+            {/* Debug info for quick diagnosis */}
+            <div className="debug-info" style={{ marginTop: 8, fontSize: 12, opacity: 0.8 }}>
+              <div>Ben: <strong>{currentUser?.username}</strong> (id: {currentUser?.id})</div>
+              <div>Socket: {socket?.id || 'yok'}</div>
             </div>
             <button className="cancel-button" onClick={handleCancel}>
               ❌ İptal Et

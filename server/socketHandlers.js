@@ -46,7 +46,9 @@ function setupSocketHandlers(io, socket, roomManager) {
       socket.data.currentRoom = roomId;
       
       const activeCount = roomManager.getActiveUserCount(roomId);
+      const activeList = roomManager.getActiveUsers(roomId);
       console.log(`   ✅ User added to room. Active count: ${activeCount}`);
+      console.log(`   👥 Active users now: [${activeList.join(', ')}]`);
       
       // Send confirmation
       socket.emit('roomJoined', {
@@ -153,7 +155,9 @@ function setupSocketHandlers(io, socket, roomManager) {
       roomManager.setUserActive(roomId, userId, active);
       
       const activeCount = roomManager.getActiveUserCount(roomId);
+  const activeList = roomManager.getActiveUsers(roomId);
       console.log(`   ✅ User set to ${active ? 'ACTIVE' : 'INACTIVE'}. Active count: ${activeCount}`);
+  console.log(`   👥 Active users now: [${activeList.join(', ')}]`);
       
       // Send confirmation
       socket.emit('activeStatusChanged', { roomId, userId, active });

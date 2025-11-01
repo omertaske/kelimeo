@@ -1,5 +1,5 @@
 const express = require('express');
-const http = require('http');
+const http = require('node:http');
 const { Server } = require('socket.io');
 const cors = require('cors');
 const { RoomManager } = require('./roomManager');
@@ -92,7 +92,11 @@ app.get('/health', (req, res) => {
 
 // Socket.io connection handler
 io.on('connection', (socket) => {
+  const origin = socket.handshake.headers?.origin || 'n/a';
+  const ua = socket.handshake.headers?.['user-agent'] || 'n/a';
   console.log(`🔌 Socket connected: ${socket.id}`);
+  console.log(`   🌍 Origin: ${origin}`);
+  console.log(`   🧭 UA: ${ua}`);
   
   // Setup all socket event handlers
   setupSocketHandlers(io, socket, roomManager);
