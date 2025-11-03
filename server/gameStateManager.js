@@ -165,6 +165,60 @@ class GameStateManager {
     }
 
     const tiles = Array.isArray(move?.tiles) ? move.tiles : [];
+    // Validation: non-empty tiles and empty target cells
+    if (!tiles.length) {
+      const err = new Error('INVALID_MOVE');
+      err.code = 'INVALID_MOVE';
+      throw err;
+    }
+    for (const { row, col } of tiles) {
+      const cell = state.board[row]?.[col];
+      if (!cell || cell.letter) {
+        const err = new Error('INVALID_MOVE');
+        err.code = 'INVALID_MOVE';
+        throw err;
+      }
+    }
+    // Validation: alignment (same row or same col) and contiguity
+    const sameRow = tiles.every(t => t.row === tiles[0].row);
+    const sameCol = tiles.every(t => t.col === tiles[0].col);
+    if (!sameRow && !sameCol) {
+      const err = new Error('INVALID_MOVE');
+      err.code = 'INVALID_MOVE';
+      throw err;
+    }
+    if (sameRow) {
+      const row = tiles[0].row;
+      const cols = tiles.map(t => t.col).sort((a, b) => a - b);
+      for (let i = 1; i < cols.length; i++) {
+        if (cols[i] !== cols[i - 1] + 1) {
+          const err = new Error('INVALID_MOVE');
+          err.code = 'INVALID_MOVE';
+          throw err;
+        }
+      }
+    } else if (sameCol) {
+      const col = tiles[0].col;
+      const rows = tiles.map(t => t.row).sort((a, b) => a - b);
+      for (let i = 1; i < rows.length; i++) {
+        if (rows[i] !== rows[i - 1] + 1) {
+          const err = new Error('INVALID_MOVE');
+          err.code = 'INVALID_MOVE';
+          throw err;
+        }
+      }
+    }
+    // First move center enforcement
+    if (state.moves.length === 0) {
+      const size = state.board.length;
+      const center = Math.floor(size / 2);
+      const hasCenter = tiles.some(t => t.row === center && t.col === center);
+      if (!hasCenter) {
+        const err = new Error('INVALID_MOVE');
+        err.code = 'INVALID_MOVE';
+        throw err;
+      }
+    }
     // Place tiles
     tiles.forEach(({ row, col, letter, isBlank, repr }) => {
       const cell = state.board[row]?.[col];

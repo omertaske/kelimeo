@@ -1,15 +1,45 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { useGame } from '../../context/GameContext';
 import { useSound } from '../../hooks/useSound';
 import { toLowerCaseTurkish } from '../../helpers/stringHelpers';
 import { useMatchGame } from '../../services/matchGameService';
+import { useSocket } from '../../context/SocketContext';
+import { v4 as uuidv4 } from 'uuid';
+import { tilesToPayload, applyBoardDiffImmutable } from '../../utils/game/tileAdapter';
 import Toast from '../gameRoom/ui/Toast';
+import { logEvent, incrementCounter } from '../../utils/telemetry';
+import ScoreStar from '../gameRoom/ui/ScoreStar';
+import { mapMatchErrorCode } from '../../utils/errorMap';
 import GameEndScreen from '../gameRoom/ui/GameEndScreen';
 import BagDrawer from '../gameRoom/ui/BagDrawer';
 import BlankLetterModal from '../gameRoom/ui/BlankLetterModal';
 import './GameRoom.css';
 import './GameBoard.css';
+import t from '../../i18n';
+import { getConfig } from '../../config/runtimeConfig';
+import { shouldEnableMultiplayer } from '../../config/rollout';
+import { computePreviewBoard } from '../../utils/game/preview';
+import { validateOrientationAndContiguity as validateOC } from '../../utils/game/validators';
+import { isMyTurn } from '../../utils/game/selectors';
+import { toServerPlayerId } from '../../utils/game/playerMap';
+
+// Yardımcılar
+const toastForTurnReason = (reason) => {
+  if (reason === 'timeout') return t('toast.turnTimeout');
+  if (reason === 'pass') return t('toast.pass');
+  return t('toast.turnChanged');
+};
+
+const multiplierLabel = (m) => {
+  if (m === 'TW') return '×3';
+  if (m === 'DW') return '×2';
+  if (m === 'TL') return '×3';
+  if (m === 'DL') return '×2';
+  return m || '';
+};
+
+// (taşındı) Yerleştirme doğrulamaları utils/validators.js'de
 
 const GameRoom = () => {
   const { roomId } = useParams();
@@ -19,10 +49,12 @@ const GameRoom = () => {
   const matchId = initialData?.matchId;
   const partnerId = initialData?.partnerId;
   const mpMode = !!matchId; // Eşleşmeden geldiysek çok oyunculu mod
+  const { on, off } = useSocket();
   const {
     joinMatch: mpJoinMatch,
     placeTiles: mpPlaceTiles,
     passTurn: mpPassTurn,
+    shuffleRack: mpShuffleRack,
     leaveMatch: mpLeaveMatch,
     requestFullState,
     onGameReady,
@@ -77,10 +109,11 @@ const GameRoom = () => {
   const [rackPosition, setRackPosition] = useState({ bottom: 20, left: '50%' });
   const [isDraggingRack, setIsDraggingRack] = useState(false);
   const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
-  const [blankSelection, setBlankSelection] = useState(null); // { row, col } - Blank seçimi için
+  const [blankSelection, setBlankSelection] = useState(null); // { row, col, tileId } - Blank seçimi için
   const [currentScore, setCurrentScore] = useState(0); // Yerleştirilen harflerin puanı
 
   const { playSound } = useSound();
+  const { FEATURES } = getConfig();
 
   // Multiplayer (otoriter sunucu) state'leri
   const [mpBoard, setMpBoard] = useState([]);
@@ -89,9 +122,22 @@ const GameRoom = () => {
   const [mpScores, setMpScores] = useState({});
   const [mpCurrentTurn, setMpCurrentTurn] = useState(null);
   const [mpTileBagRemaining, setMpTileBagRemaining] = useState();
+  const [mpTurnEndsAt, setMpTurnEndsAt] = useState(null); // epoch ms
+  const [mpTurnRemaining, setMpTurnRemaining] = useState(0); // seconds
+  const [mpLetterScores, setMpLetterScores] = useState(null); // server authoritative scores
+  const [mpDistribution, setMpDistribution] = useState(null); // server authoritative distribution
+  const prevScoresRef = useRef({});
+  const [lastMovePoints, setLastMovePoints] = useState(0);
+  const lastSubmitAtRef = useRef(null); // Telemetry: move submit ts
+  // MP modda raftaki harfleri yerel olarak (optimiztik) güncellemek için bekleyen taşlar iade/gider hesapları
+  // Not: Sunucu otoritesi korunur; state_patch/full_state geldiğinde senkron yapılır.
 
   // Component mount olduğunda odaya katıl (SADECE eğer oyun başlamamışsa)
   useEffect(() => {
+    // Teşhis logları
+    try {
+      console.log('[diag] route params', { roomId, matchId, partnerId, mpMode });
+    } catch {}
     // Eğer oyun zaten PLAYING durumundaysa, joinRoom çağırma (multiplayer'dan gelindi)
     if (mpMode) {
       return; // MP modda local joinRoom yapma
@@ -115,51 +161,125 @@ const GameRoom = () => {
     }
 
     // Eğer henüz bu odaya katılmadıysak, katıl
-    if (!currentRoom || currentRoom.id !== roomId) {
+    if (currentRoom?.id !== roomId) {
       console.log(`GameRoom mount: ${roomId} odasına katılıyor...`);
       joinRoom(roomId);
     }
-  }, [roomId, navigate, joinRoom, currentRoom, BOARD_TYPES, gameState, GAME_STATES.PLAYING, mpMode]);
+  }, [roomId, matchId, partnerId, navigate, joinRoom, currentRoom, BOARD_TYPES, gameState, GAME_STATES.PLAYING, mpMode]);
 
   // MP: Socket event abonelikleri
   useEffect(() => {
     if (!mpMode) return;
     const c1 = onGameReady((payload) => {
       setMpScores(payload.state?.scores || {});
+      prevScoresRef.current = payload.state?.scores || {};
       setMpCurrentTurn(payload.state?.currentTurn || null);
-    });
-    const c2 = onStatePatch(({ move, boardDiff, scores, tileBagRemaining, currentTurn }) => {
-      if (scores) setMpScores(scores);
-      if (typeof tileBagRemaining === 'number') setMpTileBagRemaining(tileBagRemaining);
-      if (currentTurn) setMpCurrentTurn(currentTurn);
-      if (Array.isArray(boardDiff) && boardDiff.length) {
-        setMpBoard(prev => {
-          if (!prev || prev.length === 0) return prev;
-          const next = prev.map(r => r.map(c => ({ ...c })));
-          boardDiff.forEach(({ row, col, letter, isBlank, blankAs }) => {
-            const cell = next[row]?.[col];
-            if (!cell) return;
-            const hadMult = !!cell.multiplier;
-            next[row][col] = {
-              ...cell,
-              letter,
-              owner: move?.by,
-              isBlank: !!isBlank,
-              blankAs: blankAs || (isBlank ? letter : null),
-              usedMultipliers: cell.usedMultipliers || hadMult ? true : false,
-            };
-          });
-          return next;
-        });
+      if (payload.turn_expires_at) {
+        setMpTurnEndsAt(payload.turn_expires_at);
+        const drift = (payload.turn_expires_at - Date.now()) - 30000;
+        logEvent('timer_drift_ms', { matchId, roomId, drift });
+        logEvent('turn_timer_drift_ms', { matchId, roomId, drift });
+      }
+      if (payload.tilebag_info?.letterScores) {
+        setMpLetterScores(payload.tilebag_info.letterScores);
+      }
+      if (payload.tilebag_info?.distribution) {
+        // Normalize distribution array/object to a map { [letter]: count }
+        const dist = Array.isArray(payload.tilebag_info.distribution)
+          ? payload.tilebag_info.distribution.reduce((acc, d) => {
+              if (d && d.letter) acc[d.letter] = (typeof d.count === 'number' ? d.count : 0);
+              return acc;
+            }, {})
+          : (payload.tilebag_info.distribution || null);
+        if (dist) setMpDistribution(dist);
       }
     });
-  const c3 = onTurnChanged(({ currentTurn }) => setMpCurrentTurn(currentTurn));
-  const c4 = onOpponentLeft(() => {});
-  const c5 = onGameOver(() => {});
-  const c6 = onMatchError(() => {});
-  const c7 = onWaitingOpponent(() => {});
+    const c2 = onStatePatch(({ move, boardDiff, scores, tileBagRemaining, currentTurn, turn_expires_at, turnExpiresAt, tilebag_info }) => {
+      if (scores) {
+        // Son hamle puanı: skor farkından hesapla
+        try {
+          const by = move?.by;
+          if (by && typeof prevScoresRef.current?.[by] === 'number' && typeof scores[by] === 'number') {
+            const delta = scores[by] - prevScoresRef.current[by];
+            if (by === currentUser?.id && delta > 0) {
+              setLastMovePoints(delta);
+              setTimeout(() => setLastMovePoints(0), 2000);
+            }
+          }
+        } catch {}
+        prevScoresRef.current = scores;
+        setMpScores(scores);
+      }
+      if (typeof tileBagRemaining === 'number') setMpTileBagRemaining(tileBagRemaining);
+      if (currentTurn) setMpCurrentTurn(currentTurn);
+  if (turn_expires_at || turnExpiresAt) setMpTurnEndsAt(turn_expires_at || turnExpiresAt);
+      if (tilebag_info?.letterScores) setMpLetterScores(tilebag_info.letterScores);
+      if (tilebag_info?.distribution) {
+        const dist = Array.isArray(tilebag_info.distribution)
+          ? tilebag_info.distribution.reduce((acc, d) => {
+              if (d && d.letter) acc[d.letter] = (typeof d.count === 'number' ? d.count : 0);
+              return acc;
+            }, {})
+          : (tilebag_info.distribution || null);
+        if (dist) setMpDistribution(dist);
+      }
+      // Telemetry: ack latency
+      if (move?.by && currentUser?.id && move.by === currentUser.id && lastSubmitAtRef.current) {
+        const ms = Date.now() - lastSubmitAtRef.current;
+        logEvent('move_ack_ms', { matchId, roomId, ms });
+        lastSubmitAtRef.current = null;
+      }
+      if (Array.isArray(boardDiff) && boardDiff.length) {
+        setMpBoard(prev => applyBoardDiffImmutable(prev, boardDiff, move?.by));
+        // Başarılı ack UX: kendi hamlemizse bilgi ver
+        if (move?.by && currentUser?.id && move.by === currentUser.id) {
+          logEvent('move_ack', { matchId, roomId, by: move.by });
+          setToastMessage({ text: t('toast.ackOk'), type: 'success', duration: 1200 });
+        }
+      }
+    });
+    const c3 = onTurnChanged(({ currentTurn, reason, turn_expires_at, turnExpiresAt }) => {
+      setMpCurrentTurn(currentTurn);
+      if (turn_expires_at || turnExpiresAt) {
+        const exp = turn_expires_at || turnExpiresAt;
+        setMpTurnEndsAt(exp);
+        const drift = (exp - Date.now()) - 30000;
+        logEvent('timer_drift_ms', { matchId, roomId, drift });
+        logEvent('turn_timer_drift_ms', { matchId, roomId, drift });
+      }
+      setToastMessage({ text: toastForTurnReason(reason), type: 'info', duration: 1500 });
+    });
+    const c4 = onOpponentLeft(() => {
+      setToastMessage({ text: t('toast.opponentLeft'), type: 'yellow', duration: 2000 });
+    });
+    const c5 = onGameOver(({ winner }) => {
+      setToastMessage({ text: `${t('toast.gameOver')} Kazanan: ${winner ?? 'Yok'}`, type: 'blue', duration: 2500 });
+    });
+    const c6 = onMatchError((e) => {
+      const key = mapMatchErrorCode(e?.code);
+      const msg = key ? t(key) : (e?.message || 'Bilinmeyen hata');
+  logEvent('move_error', { code: e?.code, message: e?.message });
+      if (['ROOM_NOT_FOUND','MATCH_NOT_FOUND','UNAUTHORIZED','JOIN_FAILED'].includes(e?.code)) {
+        logEvent('room_bootstrap_fail', { matchId, roomId, code: e?.code });
+      }
+      if (e?.code) incrementCounter('move_err_code_count', e.code);
+      setToastMessage({ text: `❌ ${msg}`, type: 'error', duration: 2500 });
+      if (['ROOM_NOT_FOUND','MATCH_NOT_FOUND','UNAUTHORIZED'].includes(e?.code)) {
+        // Graceful fallback to rooms list
+        navigate('/rooms');
+      }
+      // Optimistik yerleştirmeyi geri al
+      if (placedTiles.length) {
+        // MP raftan düşülen harfleri geri ekle
+        setMpRack(prev => prev.concat(placedTiles.map(t => t.letter)));
+        clearPlacedTiles();
+        setCurrentScore(0);
+      }
+    });
+  const c7 = onWaitingOpponent(() => setToastMessage({ text: t('toast.waitingOpponent'), type: 'info', duration: 1500 }));
     const c8 = onFullState((full) => {
       setMpScores(full.scores || {});
+      prevScoresRef.current = full.scores || {};
       setMpCurrentTurn(full.currentTurn || null);
       if (Array.isArray(full.board)) setMpBoard(full.board);
       if (full.rack) {
@@ -167,18 +287,45 @@ const GameRoom = () => {
         setMpOppRackCount(full.rack.opponentCount || 0);
       }
       if (typeof full.tileBagRemaining === 'number') setMpTileBagRemaining(full.tileBagRemaining);
+      if (full.tilebag_info?.letterScores) setMpLetterScores(full.tilebag_info.letterScores);
+      if (full.tilebag_info?.distribution) {
+        const dist = Array.isArray(full.tilebag_info.distribution)
+          ? full.tilebag_info.distribution.reduce((acc, d) => {
+              if (d && d.letter) acc[d.letter] = (typeof d.count === 'number' ? d.count : 0);
+              return acc;
+            }, {})
+          : (full.tilebag_info.distribution || null);
+        if (dist) setMpDistribution(dist);
+      }
+      // Optimistik pending temizliği: tam state geldiğinde yerel geçici yerleştirmeleri sıfırla
+      if (placedTiles.length) {
+        clearPlacedTiles();
+        setCurrentScore(0);
+      }
+      logEvent('full_state_sync', { matchId, roomId });
     });
     return () => { c1(); c2(); c3(); c4(); c5(); c6(); c7(); c8(); };
-  }, [mpMode, onGameReady, onStatePatch, onTurnChanged, onOpponentLeft, onGameOver, onMatchError, onWaitingOpponent, onFullState]);
+  }, [mpMode, onGameReady, onStatePatch, onTurnChanged, onOpponentLeft, onGameOver, onMatchError, onWaitingOpponent, onFullState, placedTiles, clearPlacedTiles, currentUser?.id, matchId, roomId, navigate]);
 
   // MP: Maça katıl ve tam state iste
   useEffect(() => {
     if (!mpMode) return;
-    if (matchId && roomId) {
+    if (!currentUser || !roomId || !matchId) {
+      navigate('/rooms');
+      return;
+    }
+    const doJoin = () => {
       mpJoinMatch({ matchId, roomId });
       requestFullState({ matchId });
-    }
-  }, [mpMode, matchId, roomId, mpJoinMatch, requestFullState]);
+      logEvent('reconnect_join', { matchId, roomId });
+      logEvent('room_bootstrap_ok', { matchId, roomId });
+    };
+    // Hemen katıl ve tam state iste
+    doJoin();
+    // Reconnect olduğunda tekrar katıl ve state iste
+    on('connect', doJoin);
+    return () => off('connect', doJoin);
+  }, [mpMode, matchId, roomId, mpJoinMatch, requestFullState, currentUser, navigate, on, off]);
 
   // Mouse move listener for dragging
   useEffect(() => {
@@ -189,8 +336,9 @@ const GameRoom = () => {
     };
 
     if (draggingLetter) {
-      window.addEventListener('mousemove', handleMouseMove);
-      return () => window.removeEventListener('mousemove', handleMouseMove);
+  const glob = (typeof window !== 'undefined') ? window : undefined;
+      glob?.addEventListener('mousemove', handleMouseMove);
+      return () => glob?.removeEventListener('mousemove', handleMouseMove);
     }
   }, [draggingLetter]);
 
@@ -205,9 +353,9 @@ const GameRoom = () => {
       const mins = Math.floor(turnTimer / 60);
       const secs = turnTimer % 60;
       const timeStr = `${mins}:${secs.toString().padStart(2, '0')}`;
-      document.title = `⏱️ ${timeStr} - Kelimeo`;
+  document.title = `⏱️ ${timeStr} - Kelimeo`;
     } else {
-      document.title = 'Kelimeo - Türkçe Kelime Oyunu';
+  document.title = 'Kelimeo - Türkçe Kelime Oyunu';
     }
     
     return () => {
@@ -215,10 +363,28 @@ const GameRoom = () => {
     };
   }, [gameState, turnTimer, GAME_STATES.PLAYING]);
 
-  // Oyun timer uyarıları - artık kullanılmıyor
+  // MP: Turn kalan süre hesabı (500ms tick)
   useEffect(() => {
-    // Boş - timer uyarıları ekranda görünüyor
-  }, [gameState, currentTurn, gameTimer, GAME_STATES.PLAYING]);
+    if (!mpMode) return; 
+    let iv;
+    const tick = () => {
+      if (!mpTurnEndsAt) { setMpTurnRemaining(0); return; }
+      const diff = Math.max(0, Math.floor((mpTurnEndsAt - Date.now()) / 1000));
+      setMpTurnRemaining(diff);
+    };
+    tick();
+    iv = setInterval(tick, 500);
+    return () => iv && clearInterval(iv);
+  }, [mpMode, mpTurnEndsAt]);
+
+  // Teşhis: selector değerleri (bir kez)
+  useEffect(() => {
+    try {
+      const myTurnTop = isMyTurn(mpMode, mpCurrentTurn, currentUser?.id, currentTurn);
+      console.log('[diag] selectors', { mpMode, mpCurrentTurn, myId: currentUser?.id, currentTurn, myTurnTop });
+    } catch {}
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Yerleştirilen harfler değiştiğinde puanı hesapla
   useEffect(() => {
@@ -240,6 +406,7 @@ const GameRoom = () => {
         value: isBlank ? 0 : (LETTER_SCORES[letter] || 0)
       };
     });
+
 
     // TÜM oluşan kelimeleri bul ve toplam puanı hesapla
     try {
@@ -295,20 +462,21 @@ const GameRoom = () => {
   }, [moveHistory, playSound]);
 
   const handleLetterSelect = (letter) => {
-    const myTurn = mpMode ? (mpCurrentTurn === currentUser?.id) : (currentTurn === 'player');
+  const myTurn = mpMode ? (mpCurrentTurn === toServerPlayerId(currentUser?.id)) : (currentTurn === 'player');
     const isPlaying = mpMode ? true : (gameState === GAME_STATES.PLAYING);
     if (!myTurn || !isPlaying) return;
     
     // Harfi sürükleme moduna al
     setDraggingLetter(letter);
+    try { logEvent('dnd_start', { letter }); } catch {}
     
     // Sarı toast mesajı göster (1 saniye) + ses efekti
-    setToastMessage({ text: `${letter} seçildi`, type: 'yellow', duration: 1000 });
+  setToastMessage({ text: `${letter} seçildi`, type: 'yellow', duration: 1000 });
     playSound('kelimeEklendi', 0.3);
   };
 
   const handleBoardClick = (row, col) => {
-    const board = mpMode ? mpBoard : gameBoard;
+  const board = mpMode ? mpBoard : gameBoard;
     if (!board?.[row]?.[col]) return;
     const cell = board[row][col];
     const placedTile = placedTiles.find(t => t.row === row && t.col === col);
@@ -318,7 +486,7 @@ const GameRoom = () => {
       const word = findWordAtCell(row, col);
       if (word && word.length >= 2) {
         // Eğer kelime anlamı cache'de varsa göster, yoksa TDK'dan getir
-        const cached = wordMeanings && wordMeanings[word];
+  const cached = wordMeanings?.[word];
         if (cached) {
           setToastMessage({ text: `📖 ${word}: ${cached}`, type: 'blue', duration: 5000 });
           playSound('toastKelimeAnlami', 0.4);
@@ -330,9 +498,12 @@ const GameRoom = () => {
     }
     
     // Oyuncu sırası değilse çık
-  const myTurn = mpMode ? (mpCurrentTurn === currentUser?.id) : (currentTurn === 'player');
+  const myTurn = mpMode ? (mpCurrentTurn === toServerPlayerId(currentUser?.id)) : (currentTurn === 'player');
   const isPlaying = mpMode ? true : (gameState === GAME_STATES.PLAYING);
-  if (!myTurn || !isPlaying) return;
+  if (!myTurn || !isPlaying) {
+    logEvent('dnd_drop_rejected_not_turn', { matchId, row, col });
+    return;
+  }
     
     // Eğer sürüklenen harf varsa, yerleştir
     if (draggingLetter) {
@@ -340,15 +511,25 @@ const GameRoom = () => {
       if (!cell.letter && !placedTile) {
         // Blank (*) joker ise modal aç
         if (draggingLetter === '*') {
-          setBlankSelection({ row, col });
+          setBlankSelection({ row, col, tileId: uuidv4() });
           setDraggingLetter(null);
         } else {
           placeTile(draggingLetter, row, col);
-          setToastMessage({ text: `${draggingLetter} harfi yerleştirildi`, type: 'yellow', duration: 1000 });
+          try { logEvent('dnd_drop', { letter: draggingLetter, row, col }); } catch {}
+          if (mpMode) {
+            // MP raftan optimistik çıkar
+            setMpRack(prev => {
+              const next = [...prev];
+              const idx = next.indexOf(draggingLetter);
+              if (idx > -1) next.splice(idx, 1);
+              return next;
+            });
+          }
+          setToastMessage({ text: `${draggingLetter}${t('toast.placed')}`, type: 'yellow', duration: 1000 });
           setDraggingLetter(null);
         }
       } else if (cell.letter) {
-        setToastMessage({ text: '⚠️ Bu hücrede zaten onaylanmış bir harf var!', type: 'error', duration: 2000 });
+  setToastMessage({ text: t('toast.cannotOverwrite'), type: 'error', duration: 2000 });
         playSound('toastUyari', 0.5);
         setDraggingLetter(null);
       }
@@ -359,6 +540,10 @@ const GameRoom = () => {
     // Onaylanmış harfler (cell.letter && cell.owner) kaldırılamaz
     if (placedTile) {
       removeTile(row, col);
+      if (mpMode) {
+        // MP rafta harfi geri göster
+        setMpRack(prev => [...prev, placedTile.letter]);
+      }
       // Geri alma toast'ı kaldırıldı - sessiz işlem
     } else if (cell.letter && cell.owner) {
       // Onaylanmış harfler uyarısı kaldırıldı
@@ -370,7 +555,7 @@ const GameRoom = () => {
       document.documentElement.requestFullscreen().then(() => {
         setIsFullscreen(true);
       }).catch(() => {
-        setToastMessage({ text: '⚠️ Tam ekran açılamadı', type: 'error', duration: 2000 });
+  setToastMessage({ text: t('toast.fullscreenFail'), type: 'error', duration: 2000 });
         playSound('toastUyari', 0.5);
       });
     } else {
@@ -382,8 +567,17 @@ const GameRoom = () => {
 
   const handleBlankSelect = (letter) => {
     if (blankSelection) {
-      const { row, col } = blankSelection;
-      placeTile('*', row, col, letter); // Blank joker + repr
+      const { row, col, tileId } = blankSelection;
+      placeTile('*', row, col, letter, tileId); // Blank joker + repr + id
+      if (mpMode) {
+        // MP raftan '*' düşür
+        setMpRack(prev => {
+          const next = [...prev];
+          const idx = next.indexOf('*');
+          if (idx > -1) next.splice(idx, 1);
+          return next;
+        });
+      }
       setToastMessage({ text: `🃏 Joker "${letter}" harfini temsil ediyor`, type: 'success', duration: 2000 });
       playSound('toastBasarili', 0.6);
       setBlankSelection(null);
@@ -426,11 +620,12 @@ const GameRoom = () => {
   // Rack drag için global event listener
   useEffect(() => {
     if (isDraggingRack) {
-      window.addEventListener('mousemove', handleRackMouseMove);
-      window.addEventListener('mouseup', handleRackMouseUp);
+  const glob = (typeof window !== 'undefined') ? window : undefined;
+      glob?.addEventListener('mousemove', handleRackMouseMove);
+      glob?.addEventListener('mouseup', handleRackMouseUp);
       return () => {
-        window.removeEventListener('mousemove', handleRackMouseMove);
-        window.removeEventListener('mouseup', handleRackMouseUp);
+        glob?.removeEventListener('mousemove', handleRackMouseMove);
+        glob?.removeEventListener('mouseup', handleRackMouseUp);
       };
     }
   }, [isDraggingRack, handleRackMouseMove, handleRackMouseUp]);
@@ -438,17 +633,70 @@ const GameRoom = () => {
   const handleSubmitWord = async () => {
     if (placedTiles.length === 0 || isSubmitting) return;
     if (mpMode) {
-      // Otoriter sunucu: hamleyi gönder
-      const tiles = placedTiles.map(({ letter, row, col, isBlank, repr }) => ({
-        row,
-        col,
-        letter: isBlank ? (repr || '') : letter,
-        isBlank: !!isBlank,
-        repr: isBlank ? (repr || '') : undefined,
-      }));
-      mpPlaceTiles({ matchId, roomId, move: { type: 'place_tiles', tiles, meta: {} } });
+      // Otoriter sunucu: hamleyi göndermeden önce temel doğrulamalar ve payload normalizasyonu
+      const baseBoard = (mpBoard?.length ? mpBoard : gameBoard) || [];
+      if (!baseBoard?.length) return;
+      // İstemci: yön ve bitişiklik doğrulaması
+      const validation = validateOC(placedTiles, baseBoard);
+      if (!validation.ok) {
+        const msg = validation.msg && validation.msg.startsWith('toast.') ? t(validation.msg) : validation.msg;
+        setToastMessage({ text: `❌ ${msg}`, type: 'error', duration: 1800 });
+        return;
+      }
+      const temp = baseBoard.map(r => r.map(c => ({ ...c })));
+      const positions = placedTiles.map(({ row, col }) => ({ row, col }));
+      // Geçici yerleştir
+      for (const { letter, row, col, isBlank, repr } of placedTiles) {
+        temp[row][col] = {
+          ...temp[row][col],
+          letter: isBlank ? repr : letter,
+          owner: 'player',
+          isBlank: !!isBlank,
+        };
+      }
+      // Oluşan kelimeleri bul
+      const formed = findAllWords ? findAllWords(temp, positions) : [];
+      if (!formed.length) {
+        setToastMessage({ text: t('toast.needWord'), type: 'error', duration: 2000 });
+        return;
+      }
+      // Tek harf/blank temsilcisi kontrolü
+      for (const p of placedTiles) {
+        if (p.isBlank && !p.repr) {
+          setToastMessage({ text: t('toast.selectBlank'), type: 'error', duration: 2000 });
+          return;
+        }
+      }
+      const words = formed
+        .filter(w => w.word && w.word.length >= 2)
+        .map(w => w.word);
+      if (!words.length) {
+        setToastMessage({ text: t('toast.needTwoLetters'), type: 'error', duration: 2000 });
+        return;
+      }
+      // Payload
+      const tiles = tilesToPayload(placedTiles);
+      const moveId = uuidv4();
+      lastSubmitAtRef.current = Date.now();
+      mpPlaceTiles({
+        matchId,
+        roomId,
+        move: {
+          type: 'place_tiles',
+          tiles,
+          meta: {
+            moveId,
+            words,
+            // İsteğe bağlı: formed words pozisyonları
+            validatedWords: formed.map(({ word, positions }) => ({ word, positions })),
+          }
+        }
+      });
+      // Optimistik: rafı server ack gelene kadar dokunma; sadece pending temizle
       clearPlacedTiles();
       setCurrentScore(0);
+      // Kısa süre sonra tam state iste (raf senkronu için)
+      setTimeout(() => requestFullState({ matchId }), 250);
       return;
     }
 
@@ -473,6 +721,7 @@ const GameRoom = () => {
         setCurrentScore(0);
       }
     } catch (error) {
+      console.error('makeMove error:', error);
       setToastMessage({ text: '❌ Bir hata oluştu!', type: 'error', duration: 2000 });
       playSound('toastUyari', 0.5);
       clearPlacedTiles();
@@ -483,6 +732,15 @@ const GameRoom = () => {
   };
 
   const handleShuffle = () => {
+    if (mpMode) {
+      if (mpCurrentTurn !== toServerPlayerId(currentUser?.id)) {
+        setToastMessage({ text: t('toast.notYourTurn'), type: 'error', duration: 1200 });
+        return;
+      }
+      mpShuffleRack({ matchId, roomId });
+      setToastMessage({ text: '🔀 Raf karıştırma istendi', type: 'info', duration: 1000 });
+      return;
+    }
     shuffleLetters();
     setToastMessage({ text: '🔀 Harfler karıştırıldı!', type: 'info', duration: 1000 });
   };
@@ -502,6 +760,10 @@ const GameRoom = () => {
   };
 
   const handleClear = () => {
+    if (mpMode && placedTiles.length) {
+      // MP: pending taşları rafta geri göster
+      setMpRack(prev => prev.concat(placedTiles.map(t => t.letter)));
+    }
     clearPlacedTiles();
     setToastMessage({ text: '🗑️ Yerleştirilen harfler temizlendi!', type: 'info', duration: 1000 });
   };
@@ -614,7 +876,8 @@ const GameRoom = () => {
 
   const handleLeaveGame = () => {
     if (gameState === GAME_STATES.PLAYING) {
-      if (window.confirm('Oyundan çıkmak istediğinize emin misiniz? Bu durum yenilgi sayılacaktır!')) {
+  const g = (typeof window !== 'undefined') ? window : undefined;
+      if (g?.confirm && g.confirm('Oyundan çıkmak istediğinize emin misiniz? Bu durum yenilgi sayılacaktır!')) {
         // Yarıda bırakma = mağlubiyet
         if (!mpMode && currentUser && opponent) {
           updateUserStats(currentUser.id, {
@@ -674,10 +937,11 @@ const GameRoom = () => {
   };
 
   const renderBoard = () => {
-    const board = mpMode ? mpBoard : gameBoard;
+  const board = mpMode ? mpBoard : gameBoard;
     if ((mpMode && (!board || !board.length)) || (!mpMode && (!currentRoom || !board.length))) return null;
 
     const size = mpMode ? (board?.length || 15) : currentRoom.boardSize;
+    const myTurnTop = isMyTurn(mpMode, mpCurrentTurn, currentUser?.id, currentTurn);
     
     return (
       <div className="game-board-container">
@@ -700,7 +964,7 @@ const GameRoom = () => {
             }}
           >
             {draggingLetter}
-            <span className="letter-tile-score">{LETTER_SCORES[draggingLetter] || 0}</span>
+            <span className="letter-tile-score">{mpLetterScores?.[draggingLetter] || LETTER_SCORES[draggingLetter] || 0}</span>
           </div>
         )}
 
@@ -708,15 +972,20 @@ const GameRoom = () => {
           gridTemplateColumns: `repeat(${size}, 1fr)`,
           gridTemplateRows: `repeat(${size}, 1fr)`
         }}>
-          {board.map((row, rowIndex) =>
+          {(() => {
+            const start = performance.now?.() || Date.now();
+            const preview = FEATURES.PREVIEW_OVERLAY ? computePreviewBoard(board, placedTiles) : board;
+            const rows = preview.map((row, rowIndex) =>
             row.map((cell, colIndex) => {
-              const placedTile = placedTiles.find(t => t.row === rowIndex && t.col === colIndex);
-              const displayLetter = placedTile ? placedTile.letter : cell.letter;
+              const displayLetter = cell.letter; // preview hesaplandıysa doğrudan cell.letter
               
               return (
                 <div
                   key={`${rowIndex}-${colIndex}`}
                   className={getBoardCellClass(rowIndex, colIndex, cell)}
+                  role="button"
+                  tabIndex={0}
+                  onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') handleBoardClick(rowIndex, colIndex); }}
                   onClick={() => handleBoardClick(rowIndex, colIndex)}
                   onMouseEnter={() => handleCellHover(rowIndex, colIndex)}
                   onMouseLeave={() => {}}
@@ -729,23 +998,27 @@ const GameRoom = () => {
                   {displayLetter ? (
                     <>
                       <span className="cell-letter">{displayLetter}</span>
-                      <span className="cell-score">{LETTER_SCORES[displayLetter] || 0}</span>
+                      <span className="cell-score">{mpLetterScores?.[displayLetter] || LETTER_SCORES[displayLetter] || 0}</span>
                     </>
                   ) : cell.isCenter ? (
                     <span className="center-star">⭐</span>
                   ) : cell.multiplier ? (
-                    <span className="cell-multiplier">
-                      {cell.multiplier === 'TW' ? '×3' : 
-                       cell.multiplier === 'DW' ? '×2' : 
-                       cell.multiplier === 'TL' ? '×3' : 
-                       cell.multiplier === 'DL' ? '×2' : cell.multiplier}
-                    </span>
+                    <span className="cell-multiplier">{multiplierLabel(cell.multiplier)}</span>
                   ) : null}
                 </div>
               );
-            })
-          )}
+            }));
+            const end = performance.now?.() || Date.now();
+            if (FEATURES.PREVIEW_OVERLAY) {
+              logEvent('preview_render_ms', { matchId, roomId, ms: end - start });
+            }
+            return rows;
+          })()}
         </div>
+        {/* Not your turn overlay (görsel) */}
+        {mpMode && (!myTurnTop) && (
+          <div className="board-overlay not-your-turn" aria-disabled="true" title={t('ui.notYourTurnOverlay')}>{t('ui.notYourTurnOverlay')}</div>
+        )}
         
         {/* Letter Rack - Floating & Draggable */}
         <div 
@@ -767,12 +1040,15 @@ const GameRoom = () => {
             {(mpMode ? mpRack : playerLetters).map((letter, index) => (
               <div
                 key={`${letter}-${index}`}
-                className={`letter-tile ${draggingLetter === letter ? 'selected' : ''} ${(mpMode ? (mpCurrentTurn !== currentUser?.id) : (currentTurn !== 'player')) ? 'disabled' : ''}`}
+                className={`letter-tile ${draggingLetter === letter ? 'selected' : ''} ${(mpMode ? (mpCurrentTurn !== toServerPlayerId(currentUser?.id)) : (currentTurn !== 'player')) ? 'disabled' : ''}`}
+                role="button"
+                tabIndex={0}
+                onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') handleLetterSelect(letter); }}
                 onClick={() => handleLetterSelect(letter)}
-                style={{ cursor: (mpMode ? (mpCurrentTurn === currentUser?.id) : (currentTurn === 'player')) ? 'grab' : 'not-allowed' }}
+                style={{ cursor: (mpMode ? (mpCurrentTurn === toServerPlayerId(currentUser?.id)) : (currentTurn === 'player')) ? 'grab' : 'not-allowed' }}
               >
                 {letter}
-                <span className="letter-tile-score">{LETTER_SCORES[letter] || 0}</span>
+                <span className="letter-tile-score">{mpLetterScores?.[letter] || LETTER_SCORES[letter] || 0}</span>
               </div>
             ))}
           </div>
@@ -782,7 +1058,7 @@ const GameRoom = () => {
             <button
               className="control-button primary"
               onClick={handleSubmitWord}
-              disabled={placedTiles.length === 0 || (mpMode ? (mpCurrentTurn !== currentUser?.id) : (currentTurn !== 'player')) || isSubmitting}
+              disabled={placedTiles.length === 0 || (mpMode ? (mpCurrentTurn !== toServerPlayerId(currentUser?.id)) : (currentTurn !== 'player')) || isSubmitting}
             >
               ✅ Gönder
             </button>
@@ -798,7 +1074,7 @@ const GameRoom = () => {
             <button
               className="control-button secondary"
               onClick={handleShuffle}
-              disabled={(mpMode ? (mpCurrentTurn !== currentUser?.id) : (currentTurn !== 'player'))}
+              disabled={(mpMode ? (mpCurrentTurn !== toServerPlayerId(currentUser?.id)) : (currentTurn !== 'player'))}
             >
               � Karıştır
             </button>
@@ -806,7 +1082,7 @@ const GameRoom = () => {
             <button
               className="control-button secondary"
               onClick={handlePass}
-              disabled={(mpMode ? (mpCurrentTurn !== currentUser?.id) : (currentTurn !== 'player'))}
+              disabled={(mpMode ? (mpCurrentTurn !== toServerPlayerId(currentUser?.id)) : (currentTurn !== 'player'))}
             >
               ⏭️ Pas
             </button>
@@ -830,7 +1106,11 @@ const GameRoom = () => {
     );
   }
 
-  const effectiveState = mpMode ? GAME_STATES.PLAYING : gameState;
+  // MP özellik bayrağı kapalıysa MP ekrana izin verme
+  // Rollout/Canary kontrolü
+  const mpEnabledByRollout = shouldEnableMultiplayer(currentUser);
+  const effectiveMpMode = mpMode && FEATURES.MULTIPLAYER !== false && mpEnabledByRollout;
+  const effectiveState = effectiveMpMode ? GAME_STATES.PLAYING : gameState;
   if (effectiveState === GAME_STATES.MATCHING) {
     return (
       <div className="game-room matching">
@@ -864,6 +1144,12 @@ const GameRoom = () => {
     );
   }
 
+  if (effectiveMpMode && !FEATURES.MULTIPLAYER) {
+    // MP kapalıysa odalara dön
+    navigate('/rooms');
+    return null;
+  }
+
   if (effectiveState === GAME_STATES.PLAYING) {
     return (
       <div className="game-room playing">
@@ -878,11 +1164,17 @@ const GameRoom = () => {
               <div className={`game-timer ${gameTimer <= 10 ? 'urgent' : gameTimer <= 30 ? 'warning' : ''}`}>
                 ⏰ {Math.floor(gameTimer / 60)}:{(gameTimer % 60).toString().padStart(2, '0')}
               </div>
-              <div className={`turn-timer ${turnTimer <= 10 ? 'urgent' : turnTimer <= 20 ? 'warning' : ''}`}>
-                ⏱️ Hamle: {turnTimer}s
-              </div>
+              {mpMode ? (
+                <div className={`turn-timer ${mpTurnRemaining <= 10 ? 'urgent' : mpTurnRemaining <= 20 ? 'warning' : ''}`}>
+                  ⏱️ Hamle: {mpTurnRemaining}s
+                </div>
+              ) : (
+                <div className={`turn-timer ${turnTimer <= 10 ? 'urgent' : turnTimer <= 20 ? 'warning' : ''}`}>
+                  ⏱️ Hamle: {turnTimer}s
+                </div>
+              )}
               <div className="turn-indicator">
-                {(mpMode ? (mpCurrentTurn === currentUser?.id) : (currentTurn === 'player')) ? '🎯 Sizin sıranız' : '👤 Rakip oynuyor'}
+                {(mpMode ? (mpCurrentTurn === toServerPlayerId(currentUser?.id)) : (currentTurn === 'player')) ? t('ui.yourTurn') : t('ui.oppTurn')}
               </div>
             </div>
             
@@ -921,8 +1213,12 @@ const GameRoom = () => {
           />
         )}
 
-  {/* Bag Drawer - TEK ORTAK TILE BAG (MP modda dağılım bilinmiyor) */}
-  <BagDrawer tileBagSnapshot={mpMode ? undefined : tileBagSnapshot} />
+  {/* Bag Drawer - MP modda server dağılımı/harf puanları mevcutsa göster */}
+  <BagDrawer 
+    tileBagSnapshot={mpMode ? undefined : tileBagSnapshot}
+    mpLetterScores={mpLetterScores}
+  mpDistribution={mpDistribution}
+  />
 
         {/* Blank Letter Selection Modal */}
         {blankSelection && (
@@ -933,12 +1229,7 @@ const GameRoom = () => {
         )}
 
         {/* Score Star - Sol Alt Köşe */}
-        {currentScore > 0 && (
-          <div className="score-star">
-            <div className="star-icon">⭐</div>
-            <div className="star-score">{currentScore}</div>
-          </div>
-        )}
+        <ScoreStar lastMovePoints={lastMovePoints} currentScore={currentScore} />
 
         {/* Game Content */}
         <div className="game-content">

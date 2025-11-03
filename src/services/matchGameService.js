@@ -25,6 +25,11 @@ export const useMatchGame = () => {
     socket.emit('pass_turn', { matchId, roomId, userId: currentUser.id });
   }, [socket, currentUser]);
 
+  const shuffleRack = useCallback(({ matchId, roomId }) => {
+    if (!socket || !currentUser) return;
+    socket.emit('shuffle_rack', { matchId, roomId, userId: currentUser.id });
+  }, [socket, currentUser]);
+
   const leaveMatch = useCallback(({ matchId, roomId }) => {
     if (!socket || !currentUser) return;
     socket.emit('leave_match', { matchId, roomId, userId: currentUser.id });
@@ -49,6 +54,7 @@ export const useMatchGame = () => {
     joinMatch,
     placeTiles,
     passTurn,
+    shuffleRack,
     leaveMatch,
     requestFullState,
     onGameReady,

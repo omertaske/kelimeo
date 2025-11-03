@@ -1,11 +1,12 @@
 import React, { createContext, useContext, useEffect, useState, useRef } from 'react';
 import { io } from 'socket.io-client';
+import { getSocketUrl } from '../config/runtimeConfig';
 import { useAuth } from './AuthContext';
 
 const SocketContext = createContext(null);
 
-// Socket server URL
-const SOCKET_URL = process.env.REACT_APP_SOCKET_URL || 'http://localhost:4000';
+// Socket server URL (runtime overrideable)
+const SOCKET_URL = getSocketUrl();
 
 export const SocketProvider = ({ children }) => {
   const { currentUser } = useAuth();
@@ -227,7 +228,7 @@ export const SocketProvider = ({ children }) => {
     socket.off(event, callback);
   };
 
-  const value = {
+  const value = React.useMemo(() => ({
     socket,
     isConnected,
     currentRoom,
@@ -240,7 +241,7 @@ export const SocketProvider = ({ children }) => {
     getAllRoomsStatus,
     on,
     off,
-  };
+  }), [socket, isConnected, currentRoom, enterRoom, leaveRoom, setActive, cancelMatchmaking, acceptMatch, getRoomStatus, getAllRoomsStatus, on, off]);
 
   return (
     <SocketContext.Provider value={value}>

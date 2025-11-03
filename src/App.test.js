@@ -1,8 +1,17 @@
-import { render, screen } from '@testing-library/react';
+import React from 'react';
+import { render } from '@testing-library/react';
+import { Provider } from 'react-redux';
+import { store } from './store';
 import App from './App';
 
-test('renders learn react link', () => {
-  render(<App />);
-  const linkElement = screen.getByText(/learn react/i);
-  expect(linkElement).toBeInTheDocument();
+// ESM react-router-dom için manuel mock'u kullan
+jest.mock('react-router-dom');
+
+test('renders App without crashing', () => {
+  const { container } = render(
+    <Provider store={store}>
+      <App />
+    </Provider>
+  );
+  expect(container).toBeTruthy();
 });

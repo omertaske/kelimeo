@@ -1,4 +1,4 @@
-const { toLowerCaseTurkish } = require('../utils/stringUtils');
+const { toLowerCaseTurkish, normalizeNFC } = require('../utils/stringUtils');
 
 // Basit TDK doğrulama: sozluk.gov.tr'yi sorgular
 // Not: Node 18+ gerektirir (global fetch). Aksi durumda her zaman valid=false döner.
@@ -7,10 +7,13 @@ async function validateWord(word) {
     return { valid: false, error: 'Kelime en az 2 harf olmalı' };
   }
   try {
+    // Unicode normalizasyonu (NFC) + TR lower-case
+    const normalized = normalizeNFC(word);
+    const lowered = toLowerCaseTurkish(normalized);
     if (typeof fetch !== 'function') {
       return { valid: false, error: 'Fetch desteklenmiyor (Node 18+ gerekli)' };
     }
-    const url = `https://sozluk.gov.tr/gts?ara=${encodeURIComponent(toLowerCaseTurkish(word))}`;
+    const url = `https://sozluk.gov.tr/gts?ara=${encodeURIComponent(lowered)}`;
     const res = await fetch(url);
     if (!res.ok) return { valid: false, error: 'Sözlük servisi erişilemedi' };
     const data = await res.json();
@@ -19,6 +22,7 @@ async function validateWord(word) {
     }
     return { valid: true };
   } catch (e) {
+    console.error('Dictionary validateWord error:', e);
     return { valid: false, error: 'Ağ hatası' };
   }
 }

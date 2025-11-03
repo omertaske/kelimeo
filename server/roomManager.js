@@ -75,9 +75,6 @@ class RoomManager {
     room.activeUsers.delete(userId);
     room.userSockets.delete(userId);
     
-    // Cancel any matches involving this user
-    this.cancelMatchesForUser(roomId, userId);
-    
     console.log(`👤 User ${userId} removed from ${roomId} (${room.activeUsers.size} active)`);
   }
 

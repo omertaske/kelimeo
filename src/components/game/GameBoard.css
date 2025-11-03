@@ -34,6 +34,7 @@
   height: min(90vw, 90vh);
   max-width: 700px;
   max-height: 700px;
+  position: relative;
 }
 
 .board-cell {
@@ -183,6 +184,24 @@
   z-index: 1000;
   max-width: 90vw;
   user-select: none;
+}
+
+/* Görsel overlay: sadece bilgilendirme, etkileşimi engellemez */
+.board-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 600;
+  font-size: 18px;
+  color: rgba(0,0,0,0.7);
+  background: linear-gradient(180deg, rgba(255,255,255,0.0), rgba(255,255,255,0.35));
+  pointer-events: none;
+}
+
+.board-overlay.not-your-turn {
+  color: #444;
 }
 
 .letter-rack.dragging {

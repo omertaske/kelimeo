@@ -1028,11 +1028,12 @@ export const GameProvider = ({ children }) => {
     return { success: true, message: 'Sıra geçildi!' };
   }, [currentTurn, switchTurn, gameState, playerPassCount, opponentPassCount, isMultiplayer, currentGame, currentUser]);
 
-  const placeTile = useCallback((letter, row, col, blankRepr = null) => {
+  const placeTile = useCallback((letter, row, col, blankRepr = null, tileId = undefined) => {
     if (currentTurn !== 'player') return false;
 
     // Blank (*) joker için repr bilgisi ekle
     const tileData = {
+      id: tileId,
       letter,
       row,
       col,

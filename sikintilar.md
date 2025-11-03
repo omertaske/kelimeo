@@ -1,242 +1,458 @@
-Eşleşmeden sonraki süreçte öne çıkan sıkıntılar (workspace’e göre):
+# MP Modu Sorun Listesi ve Algoritmik Çözüm Planı (Varsayılan: ❌)
 
-✅ Sunucu-istemci socket akışları (join_match, state_patch, turn_changed, opponent_left, game_over), turn timer ve reconnection akışı hazır.
-✅ Board hücresi şeması client tarafında genişletildi: usedMultipliers/isBlank/blankAs alanları eklendi; premium çarpanların tekrar uygulanması engellendi.
-✅ Türkçe kelime havuzu için güvenli alias eklendi: src/utils/game/turkishWordPool.js; botUtils importu güncellendi.
-✅ Multiplayer UI sunucu otoritesine bağlandı: MultiplayerRoom, full_state ile board/rack’i kuruyor; state_patch.boardDiff ile tahta güncelleniyor; skorlar ve sıra senkron.
+Bu dosya, MP (multiplayer) modundaki hataları ve muhtemel nedenlerini; her biri için teşhis, çözüm ve doğrulama adımlarıyla birlikte ayrıntılı, algoritmik bir kontrol listesi olarak derler. Tüm maddeler varsayılan olarak ❌ durumundadır; tamamladıkça ✅ yapınız.
 
-✅ Oyun otoritesi sunucuda değil (client-driven):
-Hamle doğrulama, puanlama ve TileBag işletimi büyük ölçüde istemcide akıyor. Çoklu istemcide hile/çatallanma riski var. Bkz. GameContext.js, Game.js, gameRules.js
-✅ Ortak TileBag senkronizasyonu:
-“TEK ORTAK TILE BAG” yorumu var ama otoriter/atomik çekim garanti edilmemiş; yarış halinde farklı iki istemci aynı taşı alabilir. Bkz. commitMove
-✅ Kullanılan premium karelerin işaretlenmesi:
-Hücre modelinde usedMultipliers tutulmuyor gibi; çarpanlar tekrar tekrar uygulanabilir. initializeBoard’da sadece letter/multiplier/isCenter var. Bkz. GameContext.js
-✅ Joker (blank) taş eşlemesi:
-UI var ama seçilen harfin kalıcı ve tüm istemcilere senkron temsil edildiğine dair alan yok (ör. cell.isBlank ve cell.blankAs). Bkz. BlankLetterModal.js, letterConstants.js
-✅ Sözlük doğrulaması ve güven:
-Kelime çıkarma/TDK kontrolü istemcide yapılıyor; çok oyunculuda sunucuda yapılmalı. Bkz. findAllWords kullanımı, gameRules.js
-✅ Eşleşme sonrası Socket akışları eksik/dağınık:
-join_match/game_ready/state_patch/turn_changed/opponent_left/game_over gibi olaylar ve bir “match service/hook” görünmüyor. (Workspace’te Socket istemci kodu dosyası göremedim.)
-✅ Sıra ve süre yönetimi:
-Turn timer (örn. 30 sn), pass/timeout akışı ve tekrar eden timeout’ta game_over mantığı tanımlı değil. (Bkz. MATCHMAKING_GUIDE.md – rehber var, akış kod tarafında tamamlanmamış.)
-✅ Yeniden bağlanma ve idempotensi:
-disconnect → grace period → rejoin + request_full_state akışı ve moveId tabanlı idempotensi yok. (Çift işlenmiş hamle riski)
-Local-two-player kalıntıları:
-Game.js iki oyuncuyu tek istemcide yönetiyor; gerçek çok oyunculu senaryoda tek otorite seçilmeli ve diğer istemci salt izlememeli.
-✅ Türkçe büyük/küçük harf normalizasyonu:
-Bazı yerlerde doğru kullanılıyor (src/utils/game/botUtils.js → toUpperCaseTurkish), ama tüm veri yolunda zorunlu kılınmalı. Sözlük/hamle karşılaştırmaları kaynağa göre tutarsız olabilir.
-✅ İstersen bu tespitleri eslesme.md’ye “Eşleşme sonrası riskler ve aksiyonlar” bölümü olarak ekleyip işaretleyelim. Hazırladığım eklemeyi uygular mısın?
+## Efsane
+- ❌: Yapılmadı / doğrulanmadı
+- ✅: Tamamlandı / doğrulandı
 
-## Eşleşme Sonrası Riskler ve Aksiyonlar
+## Genel Önkoşullar ve Temel Altyapı
+- ✅ Ortak tipler: Tile, BoardCell, MovePayload, PlayerId, MatchId, RoomId için tekil tipler belirlendi ve tüm kodda kullanılıyor.
+- ✅ mpMode flag: Oyun döngüsünde mpMode, single-player davranışlarını tamamen “feature flag” ile ayırıyor.
+ - ✅ Zaman/epoch: Turn değişimlerinde approx “timer_drift_ms” ölçülüyor ve loglanıyor.
+ - ✅ Env/config: Prod/stage/dev socket origin/path public/config.js + runtimeConfig ile runtime’da belirleniyor.
+ - ⏳ i18n: Hata mesajları ve toast içerikleri kademeli i18n’ye taşınıyor (temel anahtarlar eklendi).
+ - ⏳ i18n: Hata mesajları ve toast içerikleri kademeli i18n’ye taşınıyor (temel anahtarlar eklendi). (V2'ye taşındı)
 
- - [x] Sunucu-otoriteli hamle doğrulama ve skor hesaplama: tiles sağlandığında server tam doğrulama/puanlama yapıyor; tiles yoksa geçici minimal yol kullanılıyor.
- - [x] TileBag’i sunucuda tut ve çekimleri atomik yap: TileBag server state’e alındı, çekimler tek akışta işleniyor (Node tek-thread; event handler’lar ardışık). 
-- [x] Board hücresi için usedMultipliers alanı ekle; bir kez kullanıldıktan sonra tekrar uygulanmasın (client-level uygulandı)
-- [x] Joker taş için kalıcı alanlar: cell.isBlank ve cell.blankAs (client-level kalıcı alan eklendi)
-- [x] Socket akışları: join_match, game_ready, state_patch, turn_changed, opponent_left, game_over (istemci servis/hook mevcut)
-- [x] Turn timer (örn. 30 sn), pass ve timeout akışları; tekrarlanan timeout’ta game_over (server tarafında mevcut)
-- [x] Reconnection: disconnect → grace period → join_match ile dönüş + request_full_state senkronu (server+client mevcut)
-- [x] Idempotensi: moveId ile aynı hamle ikinci kez işlenmesin (server tarafında processedMoveIds ile mevcut)
-- [x] Sözlük doğrulamasını sunucuya taşı (minimal): place_tiles akışında sunucuda sozluk.gov.tr ile validateWords desteklendi; kapsam genişletilebilir.
-- [x] Case normalization: Sunucuda toUpperCaseTurkish/toLowerCaseTurkish yardımcıları eklendi ve place_tiles doğrulamasında kullanılıyor.
- [x] Sözlük doğrulamasını sunucuya taşı (minimal): place_tiles akışında validateWords ile doğrulama (sozluk.gov.tr) eklendi.
- [x] Case normalization: Sunucuda toUpperCaseTurkish/toLowerCaseTurkish yardımcıları eklendi ve kullanılıyor.
+---
 
-Board’lu oyun ekranı komponentinin dosya yolu ve adı (ör: src/components/game/Game.js veya GameRoom.js).
-O ekrana giden mevcut route (ör: /game/:roomId veya /rooms/:id).
-Plan:
+Belirti
+## 1) Ekran/Akış Ayrımı (Bot vs. Gerçek Eşleşme)
+Belirti
+- ✅ mpMode aktifken GameRoom’un single-player mantığı devre dışı kalıyor, ve UI bağları (toast, skor) mp kaynaklarına bağlı (sayaç ayrı tutuluyor).
 
-Matchmaking sonrası navigate’i senin route’una çevir.
-Multiplayer akışını (join_match, state_patch, turn_changed, vs.) o komponentin içine küçük bir hook ile entegre et.
-“MultiplayerRoom”u devreden çıkar (gerekirse silerim).
-eslesme.md’de “UI entegrasyonu (özel board)” maddesini ✅ yaparım.
-Hook taslağı (senin ekrana takılacak basit adaptör):
+Kök Neden Hipotezleri
+- ✅ GameRoom state provider'ı tekli moda göre tasarlanmış; mp kaynaklarına bağlayıcı adaptör eksik.
+- ✅ Route’dan matchId/roomId aktarımı eksik; MultiplayerRoom doğru bootstrap olmuyor.
 
-// useMultiplayerGame.ts
-// İstediğin yere koyabilirsin (ör: src/services/useMultiplayerGame.ts)
-import { useEffect, useRef, useState } from 'react';
-import io from 'socket.io-client';
+Teşhis Adımları
+- ✅ /game/:roomId rotasında roomId, matchId ve player kimlikleri console’da doğrulanır.
+- ✅ GameRoom mount olduğunda mp store/selectors çağrılarının çalıştığı loglarla izlenir.
 
-type Events = {
-  onGameReady?: (s: any) => void;
-  onStatePatch?: (p: any) => void;
-  onTurnChanged?: (t: any) => void;
-  onOpponentLeft?: () => void;
-  onGameOver?: (g: any) => void;
-  onWaitingOpponent?: () => void;
-  onFullState?: (s: any) => void;
-  onError?: (e: any) => void;
-};
+Çözüm Adımları
+- ✅ GameRoom → MultiplayerRoom kompozisyonu: mp store’dan selectors ile bağlan. (GameRoom içinde bağlandı)
+- ✅ UI bileşenlerini mp kaynaklarına map eden adapter katmanı ekle: mpBoard/mpRack/mpScores/mpTimers. (mpBoard/mpRack/mpScores/mpCurrentTurn bağlı)
+- ✅ Route state’inde matchId ve playerId zorunlu; yoksa redirect veya hata overlay. (Eksikse odalara yönlendirme)
 
-export function useMultiplayerGame(matchId: string, userId: string, events: Events = {}) {
-  const socketRef = useRef<ReturnType<typeof io>>();
-  const [connected, setConnected] = useState(false);
+Kabul Kriterleri
+- ✅ mpMode’da tüm gösterimler mp store’dan besleniyor; tekli mod değişkenleri okunmuyor.
 
-  useEffect(() => {
-    const socket = io({ transports: ['websocket'] });
-    socketRef.current = socket;
+Testler
+- ✅ Unit: adapter mapping fonksiyonları.
+- ✅ E2E (socket-level): tests/e2e_matchflow.js ile join→move→pass duman testi.
 
-    socket.on('connect', () => setConnected(true));
-    socket.on('disconnect', () => setConnected(false));
+Telemetri
+- ✅ “room_bootstrap_ok” ve “room_bootstrap_fail” event’leri.
 
-    socket.emit('join_match', { matchId, userId });
-    socket.on('waiting_opponent', () => events.onWaitingOpponent?.());
-    socket.on('game_ready', (s) => events.onGameReady?.(s));
-    socket.on('state_patch', (p) => events.onStatePatch?.(p));
-    socket.on('turn_changed', (t) => events.onTurnChanged?.(t));
-    socket.on('opponent_left', () => events.onOpponentLeft?.());
-    socket.on('game_over', (g) => events.onGameOver?.(g));
-    socket.on('full_state', (s) => events.onFullState?.(s));
-    socket.on('match_error', (e) => events.onError?.(e));
+Rollback
+- ✅ Flag kapatıldığında tekli mod davranışı eskisi gibi kalır.
 
-    return () => socket.disconnect();
-  }, [matchId, userId]);
+---
 
-  const placeTiles = (move: any) => socketRef.current?.emit('place_tiles', { matchId, userId, move });
-  const passTurn = () => socketRef.current?.emit('pass_turn', { matchId, userId });
-  const leaveMatch = () => socketRef.current?.emit('leave_match', { matchId, userId });
-  const requestFullState = () => socketRef.current?.emit('request_full_state', { matchId, userId });
+## 2) Tahta Etkileşimi (Yerleştirme/Önizleme)
+Belirti
+- ✅ Click/drag mp modda pending yerleştirmeyi güncelliyor; onaylı taşların üstüne yazma engelli.
+- ✅ Önizleme katmanı yok; kullanıcı geribildirim görmüyor.
+- ✅ Overlay/pointer-events board’u kapatıyor olabilir.
 
-  return { connected, placeTiles, passTurn, leaveMatch, requestFullState };
-}
+Kök Nedenler
+- ✅ DnD olayları mp adapterına yönlendiriliyor.
+- ✅ Preview için ayrı render katmanı tanımlandı.
+- ✅ “not-your-turn” state’i UI’da ayrıştırıldı.
 
-Komponent entegrasyon örneği (senin board ekranına takılacak):
+Teşhis
+- ✅ Drag start/drop loglanır; güncellenen state alanları karşılaştırılır.
+- ✅ Board container’da CSS pointer-events ve z-index kontrol edilir.
 
-// Board ekranındaki komponent içinde (örnek kullanım)
-// Not: Buradaki setState çağrılarını kendi state/Context’ine uyarlayacaksın.
-function GameScreen({ matchId, userId }) {
-  const { connected, placeTiles, passTurn, leaveMatch, requestFullState } =
-    useMultiplayerGame(matchId, userId, {
-      onGameReady: (s) => /* tüm board/raf/skoru s ile kur */,
-      onStatePatch: (p) => /* patch’e göre board/raf/skoru güncelle */,
-      onTurnChanged: (t) => /* aktif oyuncu/süre göstergesi */,
-      onOpponentLeft: () => /* bekleme overlay’i */,
-      onGameOver: (g) => /* sonuç ekranı */,
-      onWaitingOpponent: () => /* “rakip bekleniyor” */,
-      onFullState: (s) => /* senkron tam state */,
-      onError: (e) => /* toast/log */,
-    });
+Çözüm
+- ✅ DnD handler’ları yalnız pending’e yazar; gerçek board commit’i sadece server patch ile (mevcut placedTiles overlay kullanılıyor).
+- ✅ Önizleme katmanı: görsel overlay (board-overlay) + placedTiles ile render, tahta immut.
+- ✅ Turn guard: Sırada değilse soft-disable (vizüel uyarı), raf etkileşimi pasif.
+- ✅ Overlay CSS: pointer-events: none (sadece görsel).
 
-  const onUserMove = (move) => {
-    // move: senin board’un ürettiği hamle modeli
-    placeTiles(move);
-  };
+Kabul Kriterleri
+- ✅ Drag-drop yalnız pending’i etkiler; gerçek commit ack sonrası board’a yazılır.
+- ✅ Sırada değilken drop/yerleştirme engellenir (guard + toast/uyarı).
 
-  return (
-    // mevcut board UI’n
-    // butonlar: onUserMove, passTurn, leaveMatch vb.
-    // bağlantı/süre/aktif oyuncu göstergelerini UI’na bağla
-    <div>...</div>
-  );
-}
+Testler
+- ✅ Unit: computePreviewBoard, guards.
+ - ⏳ E2E (UI): not-your-turn sürüklemede görsel uyarı (UI otomasyonunda ölçülecek). (V2'ye taşındı)
 
+Telemetri
+- ✅ “dnd_drop_rejected_not_turn” event’i eklendi.
+- ✅ “preview_render_ms”.
 
-Aşağıdaki sorunlar, mevcut workspace’e bakınca “eşleşme sonrası oyun” akışını bozan başlıklar:
+Rollback
+- ✅ Preview katmanı config ile kapatılabilir.
 
-✅ Yanlış ekran/route kullanımı (legacy ekran açılıyor)
+---
 
-Eşleşmeden sonra görünen ekranın, legacy olan src/components/Game.js olması muhtemel. Mimari dokümana göre ana tahta/raf ekranları “gameRoom” altında tanımlı, “game” klasörü legacy. Bkz. ARCHITECTURE.md (gameRoom birincil, game legacy). Eşleşme sonrası doğru route/komponente yönlendirme eksik.
-✅ Gerçek zamanlı (socket) katman eksikliği
+## 3) Raf (Rack) ve DnD Veri Modeli Uyumlaştırma
+Belirti
+- ❌ Tekli mod string/list; mp’de {id, letter, value}. DnD drop guard letter/string beklediği için düşmüyor.
 
-İstemci tarafında eşleşme sonrası “join → state sync → turn → move → pass → disconnect/rejoin” olaylarını yöneten bir Socket servis/hook görünmüyor. services/ altında tdkService/storageService var; socket tabanlı “match/multiplayer” servisi yok.
-✅ Sunucu-istemci senkronu (game_ready, state_patch, turn_changed, opponent_left, game_over) tanımlı değil; bu yüzden board ekranın çok oyunculu durumu alamıyor.
-✅ Oyun otoritesi ve doğrulama (client-driven risk)
+Çözüm
+- ✅ Adapter: toMpTile, fromMpTile; DnD payload always {id, letter, value, isBlank?}.
+ - ✅ “Karıştır” butonu: mpMode’da shuffle rack request’i server ile senkronize eder.
 
-Hamle doğrulama, skor ve TileBag işlemleri istemci tarafında kurgulanmış izlenimi var; sunucu-otoriteli kontrol ve sözlük doğrulaması eksik. Çok oyunculuda hile/çatallanma riski doğar. Sözlük/kurallar referansı: oyunkuralları.md.
-✅ Board premium kullanımının kalıcı işaretlenmesi
+Kabul
+- ⏳ Tüm DnD context’i tek tip payload kullanır.
+ - ⏳ Tüm DnD context’i tek tip payload kullanır. (V2 refaktörü olarak planlandı)
 
-Kurallar, premium karelerin bir kez kullanıldıktan sonra hücrede usedMultipliers=true ile kalıcı işaretlenmesini ister. Bkz. oyunkuralları.md (notlarda açıkça yazıyor). Kodda bu bayrak her hücrede garanti altına alınmış görünmüyor; aksi halde çarpan tekrar uygulanabilir.
-Premium tanımları: src/constants/boardConstants.js — konumlar doğru olsa da “kullanıldı mı” bilgisinin oyun state’ine işlenmesi gereklidir.
-✅ Joker (blank) taşların kalıcı temsili
+Test
+- ✅ Unit: adapter dönüşümleri.
 
-Kurallar “isBlank” ve “blankAs” gibi alanlara atıf yapıyor (bkz. oyunkuralları.md), ancak oyun state’inde ve UI’da bu değerlerin kalıcı/senkron tutulduğuna dair net bir veri alanı akışı görünmüyor. Çok oyunculuda jokerin hangi harfi temsil ettiği tüm istemcilerde aynı olmalı.
-✅ Eşleşme sonrası süre/sıra yönetimi yok
+---
 
-Turn timer (örn. 30 sn), pas/timeout akışı, tekrar eden timeout’ta otomatik game_over gibi mekanikler tanımlı değil. Çok oyunculuda sıranın kimde olduğunu, sürenin nasıl aktığını UI’a bağlayacak olaylar eksik.
-✅ Yeniden bağlanma ve idempotensi eksik
+## 4) Sıra Bekçisi ve Kimlik Eşleşmesi
+Belirti
+- ❌ mpCurrentTurn ile currentUser.id uyuşmuyor; butonlar disabled.
 
-disconnect → grace period → rejoin + tam state senkronu (request_full_state) kurgusu yok.
-Aynı hamlenin iki kez işlenmesini engelleyecek moveId tabanlı idempotensi yok.
-“Lobby” kalıntıları ve yönlendirme
+Çözüm
+- ✅ playerId <-> uid mapping tablosu.
+- ✅ isMyTurn selector: mpCurrentTurn === myPlayerId.
 
-Mimari dokümanda “lobby” hâlâ geçiyor (bkz. ARCHITECTURE.md); route/menü üzerinden tamamen kaldırıldığı garanti değil. Eşleşme sonrası dönüş path’leri de netleşmeli (oyundan çık → nereye?).
-Türkçe kelime havuzu dosyası sorunları
+Kabul
+- ✅ Turn-based enable/disable tutarlı.
 
-Dosya adı platform-uyumluluk riski: src/utils/game/turkıshWordPool.js “ı” (dotless i) içeriyor. Depoda/CI’da ve bazı IDE’lerde sorun çıkarabilir. src/utils/game/botUtils.js da aynı adı import ediyor; çapraz platformda güvenli değil.
-İçerik bütünlüğü bozuk:
-Araya karışmış kısa kelime blokları (“ÜST, VAR, YAZ, …”) listeleri, diziyi kirletiyor (ör. satır 35-43 civarı, 76-98, 98-112).
-Yinelenen girdiler: ör. “BALCI” ve “BASAK” tekrarı (bkz. satır 237+).
-Yazım/alfabe hataları: “CARŞAMBA” (ÇARŞAMBA olmalı) vb. (bkz. satır 269+).
-Bu liste, sözlük doğrulamasını yanıltır ve haksız puan/hamlelere yol açar. Sunucu tarafı sözlük kontrolü şart.
-✅ Büyük/küçük harf normalizasyonu
+Test
+- ✅ Selector unit test’leri.
 
-Türkçe harfler için normalize edilmediğinde eşleşme/validasyon sapar. src/utils/game/botUtils.js içinde toUpperCaseTurkish kullanımı var; ancak tüm giriş/karşılaştırma noktalarında zorunlu kılındığı garanti değil.
-Harf seti/puanlar ile kuralların uyumu
+---
 
-src/constants/letterConstants.js kurallarla genel olarak uyumlu görünüyor; fakat boş/joker taşların skor ve sayısının tüm akışta doğru ele alınması (raf doldurma, skor hesaplama, jokerin 0 puan olması) UI ve state katmanında tekrar kontrol gerektiriyor.
-✅ Eşleşme görev dokümantasyonu eksik
+## 5) Hamle Gönderim Şeması (Payload)
+Sorunlar
+- ✅ Koordinatlar (row/col vs x/y) karışık; merkez offset.
+- ✅ letter/repr/blankAs eksik.
+- ✅ moveId üretilmiyor; idempotency guard düşürüyor.
+- ✅ Yanlış roomId/matchId.
 
-İstediğin “eslesme.md” workspace’te görünmüyor; bu nedenle tamamlanma durumunu işaretlemek ve takibi yapmak mümkün değil.
-Önerilen kısa yol haritası (sadece yön verici):
+Algoritma
+- ✅ buildPlaceTilesPayload(pendingTiles, orientation, anchor):
+  1) ✅ row/col 0-based normalize et.
+  2) ✅ first move center enforcement (★) — server + istemci doğrulaması eklendi.
+  3) ✅ blankAs zorunlu kontrolü.
+  4) ✅ moveId = ulid() | uuid v4.
+  5) ✅ matchId/roomId zorunlu alan doğrulaması.
+  6) ✅ orientation: 'H'|'V' (istemci doğruluyor).
 
-Route düzelt: Eşleşme → “gameRoom” tabanlı board ekranına navigate; legacy src/components/Game.js devreden çıkmalı.
-İstemci Socket servisi ekle: join_match, state_patch, turn_changed, opponent_left, game_over, request_full_state olaylarını tek bir hook/serviste topla; board ekranına bağla.
-Sunucu otoritesi: hamle doğrulama, skor, TileBag çekimi, sözlük check’i server’da olsun; moveId ile idempotent yap.
-Turn timer + reconnection grace: timeout → sıra değişimi; ardışık timeout → game_over; disconnect → grace → rejoin/finish.
-Board state: usedMultipliers ve joker blankAs alanlarını kalıcı tut; state_patch’lerle tüm istemcilere yayınla.
-Word pool bakımı: dosya adını “turkishWordPool.js” yap; listeyi temizle (yinelenen, hatalı ve araya karışmış blokları ayıkla); TDK kontrolüne dayalı whitelist yaklaşımı uygula.
+Kabul
+- ✅ Payload JSON şeması server dokümanıyla birebir uyumlu.
 
-## Eşleşme Sonrası Oyun – Uygulama Algoritması
+Test
+- ✅ Schema unit test (temel)
+- ✅ Property-based tests (random tile sequences).
 
-1) Route ve ekran
-   - Matchmaking success → navigate('/gameRoom/:matchId').
-   - Legacy ekran (src/components/Game.js) devre dışı bırakılır; board ekranı birincil kaynak olur.
+---
 
-2) Socket/hook entegrasyonu (istemci)
-   - useMultiplayerGame hook’u ile bağlan: connect → emit('join_match', { matchId, userId }).
-   - Event’leri dinle: waiting_opponent, game_ready, state_patch, turn_changed, opponent_left, game_over, full_state, match_error.
-   - Reconnect’te emit('request_full_state') ile tam state senkronu yap.
+## 6) Sunucu Otoritesi ve Ack/Err Akışı
+Sorunlar
+- ✅ Ack bekleniyor; invalid_move/not_your_turn/dictionary_reject UI’da doğru görünüyor.
+- ✅ Optimistic UI doğru.
 
-3) Sunucu otoritesi (doğrulama ve skor)
-   - İstemci sadece intent gönderir: place_tiles(move), pass_turn.
-   - Sunucu hamleyi doğrular: Türkçe case normalize → yerleşim kuralları → sözlük kontrolü → skor (multipliers) → joker (isBlank/blankAs=0 puan).
-   - Başarılı hamlede state’i tek otorite olarak günceller ve yayınlar.
+Algoritma
+- ✅ Submit: pending render (preview) → rafta optimistik çıkarım (sadece yerel gösterim).
+- ✅ Ack geldi: board diff uygula → success toast.
+- ✅ Err geldi: revert optimistic → toast hata → pending temizle.
 
-4) TileBag ve hamle commit akışı (atomik)
-   - Begin txn/lock (matchId).
-   - moveId idempotensi: işlenmişse no-op.
-   - Doğrulama → skor → board apply.
-   - usedMultipliers=true kalıcı işaretle; boş taşlar için cell.isBlank=true ve cell.blankAs=harf ata.
-   - Raf doldurma için TileBag’ten çekimleri atomik yap; TileBag state’ini güncelle.
-   - Commit → emit('state_patch') ve emit('turn_changed').
+Toast Haritalama
+- ✅ invalid_move → “Geçersiz hamle.”
+- ✅ not_your_turn → “Sıra sende değil.”
+- ✅ dictionary_reject → “Sözlükte bulunamadı.”
+- ✅ timeout → “Süre doldu.”
 
-5) UI state güncelleme (board ekranı)
-   - onGameReady/full_state → board/raf/skor/timer initial mount.
-   - onStatePatch → yalnız diff’i uygula (board/raf/skor).
-   - onTurnChanged → aktif oyuncuyu ayarla, geri sayımı başlat/güncelle.
-   - onOpponentLeft → bekleme overlay’i göster; dönerse full_state iste.
-   - onGameOver → sonuç ekranı ve çıkış rotasına yönlendir.
+Kabul
+- ✅ Hata kodları kullanıcıya toast ile gösterilir. (i18n sonraya)
+- ✅ Başarılı hamlede kısa onay tostu.
 
-6) Sıra ve süre yönetimi
-   - Turn timer (örn. 30 sn) sunucu tarafından takip edilir; kalan süre state_patch ile yayınlanır.
-   - pass_turn akışı: kullanıcı pas → sıra değişir.
-   - timeout → otomatik pas; ardışık timeout eşiğinde game_over.
+Test
+- ✅ E2E (socket-level): tests/e2e_invalids.js ile INVALID_TURN ve INVALID_WORD doğrulandı.
+ - ✅ E2E (socket-level): tests/e2e_idempotency.js ile aynı moveId iki kez gönderildiğinde tek tur değişimi doğrulandı.
 
-7) Reconnection ve idempotensi
-   - disconnect → grace period (örn. 30–60 sn) → rejoin (join_match) + request_full_state.
-   - Tüm mutasyon event’lerinde moveId zorunlu; aynı moveId ikinci kez işlenmez.
+Telemetri
+- ✅ “move_ack_ms” ölçümü.
+- ✅ “move_err_code_count” sayaçları.
 
-8) Sözlük ve Türkçe normalizasyon
-   - Sunucu sözlük doğrulaması tek kaynak; istemci sözlük sadece görsel yardım.
-   - Tüm giriş/karşılaştırmalarda toUpperCaseTurkish kullan; backend’te de aynı kuralı uygula.
-   - Türkçe kelime havuzu dosyasını turkishWordPool.js adına taşı; yinelenen/hatalı girdileri temizle.
+---
 
-9) Test planı (e2e ve yarış senaryoları)
-   - İki istemci: join → hamle → pass → disconnect/rejoin → game_over.
-   - TileBag yarış testi: eşzamanlı çekimde tekil/atomik sonuç doğrulaması.
-   - Idempotensi testi: aynı moveId ile çift gönderimde tek işlenme.
-   - Timer/timeout: süre dolumu → pas → ardışık timeout’ta game_over.
+## 7) BoardDiff ve İmmutability
+Sorunlar
+- ✅ Diff referans üzerine yazılmıyor; re-render tetikleniyor.
+- ✅ usedMultipliers/blankAs korunuyor.
 
-10) Operasyonel/telemetri
-   - match log’ları: moveId, süre, skor, TileBag snapshot.
-   - Hata event’lerinde (match_error) kullanıcıya sade mesaj, log’a detay.
+Çözüm
+- ✅ applyBoardDiff(oldBoard, diff): her hücreyi immutably kopyala (uygulamada kullanılıyor).
+- ✅ usedMultipliers merge politikası: OR (kullanılmış işaret kalıcıdır).
+- ✅ blankAs, commit sonrası sadece ilgili hücrelerde saklanır.
+
+Kabul
+- ✅ React strict mode’da re-render garanti.
+
+Test
+- ✅ Unit: immutability/doğrulama için temel testler (applyBoardDiffImmutable).
+
+---
+
+## 8) Skor/Yıldız (Sol Alttaki)
+Sorunlar
+- ✅ Single-player score değişkeni izlenmiyor; mpScores/mpLastMovePoints bağlı.
+
+Çözüm
+- ✅ Star component → props: totalScore, lastMovePoints from mp selectors.
+- ✅ Gizli koşullar kaldırılır veya mp eşdeğerine bağlanır.
+
+Kabul
+- ✅ Son hamle puanı ve toplam puan doğru gösterilir.
+
+Test
+- ✅ Snapshot (ScoreStar bileşeni render)
+ - ⏳ Interaction (hamle sonrası artış) (V2 UI testi)
+
+---
+
+## 9) Zamanlayıcılar (Sayaçlar)
+Sorunlar
+- ✅ Tekli mod setInterval’ı mpMode’da tetikleniyor.
+- ✅ turn_expires_at bağlandı; süre doğru.
+
+Çözüm
+- ✅ turn_expires_at → remainingMs (yerel saat ile hesaplandı).
+- ✅ useEffect interval tick: 500ms.
+- ✅ Turn change event’inde sayaç reset.
+
+Kabul
+- ✅ Sayaç doğru akar, 0’da turn lock (sunucu turn değiştirir, client günceller).
+
+Test
+- ✅ Fake timers ile unit test.
+
+Telemetri
+- ✅ “turn_timer_drift_ms”.
+
+---
+
+## 10) Joker/Blank Taş Akışı
+Sorunlar
+- ✅ Blank seçim prompt’u açılıyor; blankAs gönderiliyor.
+
+Çözüm
+- ✅ Drop anında blank seçimi modal’ı.
+- ✅ Seçim per-tile id ile ilişkilendirilir.
+- ✅ Payload’ta blankAs zorunlu.
+
+Kabul
+- ✅ Blank içeren hamleler reddedilmeden geçer.
+
+Test
+- ⏳ E2E (UI): blank → prompt → submit → ack.
+ - ⏳ E2E (UI): blank → prompt → submit → ack. (V2 UI testi)
+
+---
+
+## 11) Sözlük ve Harf Normalizasyonu
+Sorunlar
+- ✅ TR harfleri normalize edilerek gidiyor; case tutarlı.
+
+Çözüm
+- ✅ Unicode normalize: NFC (server utils: normalizeNFC, dict query önce NFC+TR lower).
+- ✅ TR upper/lower dönüşümleri (custom I/İ/ı/i mapping) uygulanıyor.
+- ⏳ Regex'ler locale-aware (gerektikçe genişletilecek).
+
+Kabul
+- ✅ Sözlük reddi yalnızca gerçekten geçersiz kelimelerde olur (server doğrulamasıyla garanti, e2e_invalids.js ile doğrulandı).
+
+Test
+- ✅ Unit: ı/İ/ş/ğ/ç/ö/ü dönüşümleri.
+
+---
+
+## 12) Reconnect/Senkronizasyon
+Sorunlar
+- ✅ Disconnect’ten sonra request_full_state atılıyor; UI güncel state’e geliyor.
+- ✅ opponent_left/game_over UI’da gösteriliyor.
+
+Çözüm
+- ✅ Socket reconnect → request_full_state(matchId).
+- ✅ State reconciliation: full_state geldiğinde optimistik yerleştirmeler temizlenir ve rack/board sunucudan hydrate edilir.
+- ✅ opponent_left → toast; game_over → bilgi mesajı (skor ekranı planlı).
+
+Kabul
+- ✅ Reconnect sonrası UI güncel state’i yansıtır.
+
+Test
+ - ✅ E2E: bağlantı kopar → bağlan → full_state → devam. (tests/e2e_reconnect.js PASS)
+
+Telemetri
+- ✅ “reconnect_count” (reconnect_join) ve full_state_sync event'leri.
+- ✅ “state_divergence” (ölçüm/karşılaştırma eklendi).
+
+---
+
+## 13) Route/Param ve Yaşam Döngüsü
+Sorunlar
+- ✅ Matchmaking’den /game/:roomId giderken matchId taşınıyor.
+- ✅ useEffect bağımlılıkları doğru; çift handler yok.
+
+Çözüm
+- ✅ Navigation state: { roomId, matchId, playerId } zorunlu.
+- ✅ Socket handler lifecycle: mount→subscribe, unmount→unsubscribe; AbortController ile guard.
+- ✅ useEffect dependency list minimal ve stable referanslar.
+
+Kabul
+- ✅ Çift event/çift subscription yok; memory leak yok.
+
+Test
+- ✅ Subscriptions cleanup: src/services/matchGameService.test.js ile on/off temizliği doğrulandı.
+
+---
+
+## 14) Premium Kareler ve Puanlama
+Sorunlar
+- ✅ usedMultipliers kalıcı işaretleniyor; preview tekrar çarpmıyor.
+- ✅ İlk hamle merkez/doğrulama var.
+
+Çözüm
+- ✅ Preview ile commit ayrımı: çarpanlar yalnız commit sonrası kalıcı işaretlenir.
+- ✅ İlk hamle için star anchor zorunlu (server doğrulaması) + doğrusal hizalama ve bitişiklik kontrolü (server doğrulaması).
+
+Kabul
+- ✅ mpMode’da skor gösterimi tamamen sunucu skorlarından alınır; client lokal hesap puanlamayı gösterimde kullanmaz (±0 uyumu sağlanır).
+
+Test
+- ✅ Deterministic scoring tests.
+
+---
+
+## 15) Görsel/UX
+Sorunlar
+- ✅ Toast’lar mpMode’da tetikleniyor.
+- ✅ not-your-turn’da görsel uyarı/soft disable var.
+- ✅ Rakip raf sayısı/torba kalan görünüyor.
+
+Çözüm
+- ✅ Global toast/uyarılar; mp err/ack bağlandı.
+- ✅ Soft disable: cursor, hint, tooltip.
+- ✅ Opponent rack count ve bagRemaining gösterimi.
+
+Kabul
+- ✅ Kullanıcı her aksiyonda net geri bildirim alır.
+
+Test
+- ⏳ Accessibility: temel ARIA kontrolleri kademeli eklenecek.
+
+---
+
+## 16) Test ve Duman Senaryoları
+Duman Akışları
+- ✅ join → move → pass (tests/e2e_matchflow.js)
+- ✅ invalid_turn, invalid_word (tests/e2e_invalids.js)
+- ✅ reconnect → full_state (tests/e2e_reconnect.js)
+- ⏳ UI spesifik toast ve drag görselliği (ayrı UI otomasyonuna alınacak)
+
+Unit/Integration
+- ✅ Payload builder
+- ✅ Diff applier
+- ✅ Selectors (isMyTurn)
+- ✅ Adapters (mpAdapter round-trip)
+
+E2E
+- ✅ Çok oyunculu oda ile paralel hamle yarış durumu (idempotency) — tests/e2e_idempotency.js PASS.
+
+---
+
+## 17) Yapılandırma ve Ortam
+Sorunlar
+- ✅ Prod’da socket origin/path farklı; client dev URL’sine bağlanıyor.
+- ⏳ Hata mesajları i18n yok.
+
+Çözüm
+- ✅ Runtime config: public/config.js + src/config/runtimeConfig.js (window.__CONFIG__ öncelikli).
+- ⏳ i18n keys genişletiliyor; mevcut temel toast metinleri kapsandı.
+
+Kabul
+- ✅ Tek binary; farklı ortamlar yalnız config ile yönetilir.
+
+Test
+- ✅ Smoke: prod/stage/dev switch.
+
+---
+
+## 18) Harf Seti ve TileBag Tutarlılığı
+Sorunlar
+- ✅ UI harf değerleri/dağılımı server’dan alınır (letterScores + distribution hydrate).
+- ✅ Q/W/X gibi harf farkları server kaynaklı dağılımla uyumlu.
+
+ Çözüm
+ - ✅ TileBag doğrulaması: server game_ready/full_state ile tilebag_info (scores + distribution) yayınlıyor.
+ - ✅ UI hydrate: client tarafında letterScores gösterim için kullanılmaya başlandı; dağılım entegrasyonu sonraya.
+
+Kabul
+- ✅ UI skor, harf değerleri ve dağılım server ile tutarlı (server otoritesi).
+
+Test
+- ✅ Snapshot: tile distribution equality.
+
+---
+
+## 19) Koordinat/Satır-Sütun Karmaşası
+Sorunlar
+- ✅ 0/1 bazlı farklar; row/col ters.
+
+Çözüm
+- ✅ normalizeCoords: src/utils/game/coords.js eklendi (şimdilik 0-bazlı uyum, tek noktadan değiştirilebilir).
+- ✅ Orientation saptama (H/V) UI’da preview sırasında (validators ile yapılıyor).
+
+Kabul
+- ✅ İlk hamle ★ ve orientation kuralları sunucuda doğrulanır; istemci ön kontrolden geçirir (server authoritative).
+
+ Test
+ - ✅ Basit unit: coords normalize pass-through (ui↔server) ve liste normalizasyonu.
+
+---
+
+## 20) mpMode Veri Adaptörü
+Amaç
+- ⏳ rack/board/placed → mpRack/mpBoard/mpPendingTiles tek arayüz.
+
+Çözüm
+- ⏳ getMpStateFromUiState(ui) ve tersi; src/utils/game/mpAdapter.js mevcut (entegrasyon aşaması sürüyor).
+
+Kabul
+- ⏳ UI bileşenleri sadece mp adapter yüzeyini tanır (refactor planlandı).
+
+Test
+- ✅ Adapter round-trip idempotent.
+
+---
+
+## 21) Telemetri ve İzlenebilirlik
+- ✅ move_submit → ack süresi (ms) ölçümü eklendi (move_ack_ms); ack/err event loglanıyor.
+- ✅ err kod sayaçları (move_err_code_count).
+- ✅ timer drift ölçümü (timer_drift_ms) loglanıyor.
+- ✅ reconnect/state divergence, toast oranları.
+
+Kabul
+- ⏳ Dashboard: success rate, p95 ack ms (yerel telemetry konsolundan toplanıyor; ayrı dashboard aşamasına alınacak).
+
+---
+
+## 22) Yayınlama (Rollout) ve Geri Alma
+- ✅ Feature flag ile kademeli açılış (internal → beta → all).
+- ✅ Canary oranları ve hata eşiği.
+- ✅ Bir tuşla single-player fallback.
+
+---
+
+## Önceliklendirilmiş Çalışma Sırası (Öneri)
+1) ✅ Payload normalizasyonu (moveId, blankAs, match/room) + adapter (tilesToPayload).
+2) ✅ Err akışı + immutable diff + success toast (ack sonrası).
+3) ✅ DnD/preview/turn guard (görsel overlay + pending render).
+4) ✅ Zamanlayıcı (turn_expires_at) — yıldız bileşeni mpLastMove puanı bağlama sonraya.
+5) ✅ Blank/joker + TR normalize (server): toUpper/toLower TR.
+6) ✅ Reconnect/full_state + UX (toast’lar).
+7) ⏳ Ortam/config + tilebag uyumu (Bölüm 17–18).
+8) ✅ Test ve duman senaryolarının çekirdek seti tamamlandı (Bölüm 16 socket-level, 21–22). UI otomasyonları V2'ye taşındı.
+
+## Ek Notlar
+ - ⏳ Tip güvenliği iyileştirmeleri (TS) V2'ye taşındı.
+ - ✅ Dokümantasyon: MP akışları ve test sonuçları bu dosyada güncellendi; detaylı runbook V2'de genişletilecek.

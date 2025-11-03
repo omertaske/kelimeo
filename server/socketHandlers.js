@@ -10,10 +10,12 @@ const matchDebouncer = new MatchDebouncer(500);
  * @param {Object} roomManager - Room manager instance
  */
 function setupSocketHandlers(io, socket, roomManager, gameStateManager) {
+  const { LETTER_SCORES, LETTER_DISTRIBUTION } = require('./constants/board');
   const { validateWords } = require('./services/dictionaryService');
   const { toUpperCaseTurkish } = require('./utils/stringUtils');
   // Timers
   const turnTimers = new Map(); // matchId -> timeoutId
+  const turnExpiry = new Map(); // matchId -> epoch ms
   const disconnectTimers = new Map(); // `${matchId}:${userId}` -> timeoutId
 
   const CLEAR_TURN_TIMER = (matchId) => {
@@ -34,6 +36,8 @@ function setupSocketHandlers(io, socket, roomManager, gameStateManager) {
   const SCHEDULE_TURN_TIMER = (matchId, roomId) => {
     CLEAR_TURN_TIMER(matchId);
     const timeoutMs = 30000; // 30s per turn
+    const expiresAt = Date.now() + timeoutMs;
+    turnExpiry.set(matchId, expiresAt);
     const t = setTimeout(() => {
       try {
         const state = gameStateManager.getState(matchId);
@@ -43,7 +47,9 @@ function setupSocketHandlers(io, socket, roomManager, gameStateManager) {
         // Track timeouts per user (simple end condition)
         nextState.timeoutCounts[offenderId] = (nextState.timeoutCounts[offenderId] || 0) + 1;
 
-        io.to(matchId).emit('turn_changed', { matchId, currentTurn: nextState.currentTurn, reason: 'timeout' });
+        const nextExpiresAt = Date.now() + timeoutMs;
+        turnExpiry.set(matchId, nextExpiresAt);
+        io.to(matchId).emit('turn_changed', { matchId, currentTurn: nextState.currentTurn, reason: 'timeout', turn_expires_at: nextExpiresAt });
 
         // If user timed out twice → opponent wins
         if (nextState.timeoutCounts[offenderId] >= 2) {
@@ -62,6 +68,7 @@ function setupSocketHandlers(io, socket, roomManager, gameStateManager) {
       }
     }, timeoutMs);
     turnTimers.set(matchId, t);
+    return expiresAt;
   };
   // Helper: broadcast rooms status to all clients
   const broadcastRoomsStatus = () => {
@@ -390,14 +397,16 @@ function setupSocketHandlers(io, socket, roomManager, gameStateManager) {
       // If both joined → initialize racks/board and game_ready to both, else waiting_opponent to joiner
       if (gameStateManager.bothJoined(matchId)) {
         gameStateManager.initializeIfReady(matchId);
+        const expiresAt = SCHEDULE_TURN_TIMER(matchId, roomId);
         io.to(matchId).emit('game_ready', {
           matchId,
           roomId,
           players: { player1: match.player1, player2: match.player2 },
           state: initialState,
+          turn_expires_at: expiresAt,
+          tilebag_info: { letterScores: LETTER_SCORES, distribution: LETTER_DISTRIBUTION },
         });
-        // Start turn timer on game start
-        SCHEDULE_TURN_TIMER(matchId, roomId);
+        // Timer başlatıldı
       } else {
         socket.emit('waiting_opponent', { matchId, roomId });
       }
@@ -410,6 +419,24 @@ function setupSocketHandlers(io, socket, roomManager, gameStateManager) {
   // place_tiles
   socket.on('place_tiles', async ({ matchId, roomId, userId, move }) => {
     try {
+      // Early idempotency check: if same moveId already processed, echo duplicate without re-applying
+      try {
+        const st = gameStateManager.getState(matchId);
+        const mid = move?.meta?.moveId;
+        if (st && mid && st.processedMoveIds && st.processedMoveIds.has(mid)) {
+          io.to(matchId).emit('state_patch', {
+            matchId,
+            move: { ...(move || {}), meta: { ...(move?.meta || {}), duplicate: true } },
+            boardDiff: [],
+            scores: st.scores,
+            currentTurn: st.currentTurn,
+            tileBagRemaining: st.tileBag?.remaining?.() ?? undefined,
+            turn_expires_at: turnExpiry.get(matchId) || null,
+          });
+          return;
+        }
+      } catch {}
+
       const match = roomManager.getMatch(roomId, matchId);
       if (!match) {
         socket.emit('match_error', { message: 'Match not found', code: 'MATCH_NOT_FOUND' });
@@ -440,7 +467,15 @@ function setupSocketHandlers(io, socket, roomManager, gameStateManager) {
         const validated = (move?.meta?.validatedWords && Array.isArray(move.meta.validatedWords))
           ? move.meta.validatedWords
           : (words.length ? words.map(w => ({ word: w, positions: move.tiles.map(t => ({ row: t.row, col: t.col })) })) : []);
-        result = gameStateManager.applyAuthoritativeMove(matchId, userId, move, validated);
+        try {
+          result = gameStateManager.applyAuthoritativeMove(matchId, userId, move, validated);
+        } catch (e) {
+          if (e && (e.code === 'INVALID_MOVE' || e.message === 'INVALID_MOVE')) {
+            socket.emit('match_error', { message: 'Geçersiz hamle', code: 'INVALID_MOVE' });
+            return;
+          }
+          throw e;
+        }
       } else {
         // Geriye dönük: sadece words geldiyse minimal skorla işleme al
         const serverPoints = words.reduce((sum, w) => sum + (w ? w.length : 0), 0);
@@ -464,16 +499,18 @@ function setupSocketHandlers(io, socket, roomManager, gameStateManager) {
         scores: state.scores,
         currentTurn: state.currentTurn,
         tileBagRemaining: state.tileBag?.remaining?.() ?? undefined,
+        turn_expires_at: turnExpiry.get(matchId) || null,
       });
 
       // Notify turn change
+      const nextExpiresAt = SCHEDULE_TURN_TIMER(matchId, roomId);
       io.to(matchId).emit('turn_changed', {
         matchId,
         currentTurn: state.currentTurn,
         reason: 'normal',
+        turn_expires_at: nextExpiresAt,
       });
-      // Reset turn timer
-      SCHEDULE_TURN_TIMER(matchId, roomId);
+      // Reset turn timer already scheduled
     } catch (error) {
       console.error('❌ Error in place_tiles:', error);
       socket.emit('match_error', { message: error.message, code: 'MOVE_FAILED' });
@@ -498,9 +535,8 @@ function setupSocketHandlers(io, socket, roomManager, gameStateManager) {
       }
 
       const state = gameStateManager.passTurn(matchId, userId);
-      io.to(matchId).emit('turn_changed', { matchId, currentTurn: state.currentTurn, reason: 'pass' });
-      // Reset turn timer
-      SCHEDULE_TURN_TIMER(matchId, roomId);
+      const nextExpiresAt = SCHEDULE_TURN_TIMER(matchId, roomId);
+      io.to(matchId).emit('turn_changed', { matchId, currentTurn: state.currentTurn, reason: 'pass', turn_expires_at: nextExpiresAt });
     } catch (error) {
       console.error('❌ Error in pass_turn:', error);
       socket.emit('match_error', { message: error.message, code: 'PASS_FAILED' });
@@ -563,6 +599,7 @@ function setupSocketHandlers(io, socket, roomManager, gameStateManager) {
         board: state.board,
         rack: { me: myRack, opponentCount: opponentRackCount },
         tileBagRemaining: state.tileBag?.remaining?.() ?? undefined,
+        tilebag_info: { letterScores: LETTER_SCORES, distribution: LETTER_DISTRIBUTION },
       });
     } catch (error) {
       console.error('❌ Error in request_full_state:', error);
@@ -585,30 +622,44 @@ function setupSocketHandlers(io, socket, roomManager, gameStateManager) {
       
       // Remove from current room if exists
       if (currentRoom && roomManager.hasRoom(currentRoom)) {
-        // Cancel matches
-        const cancelledMatches = roomManager.cancelMatchesForUser(currentRoom, userId);
-        
-        // Notify partners
-        cancelledMatches.forEach(matchId => {
-          const match = roomManager.getMatch(currentRoom, matchId);
-          if (match) {
-            const partnerId = match.player1 === userId ? match.player2 : match.player1;
-            const partnerSocketId = roomManager.getUserSocket(currentRoom, partnerId);
-            
-            if (partnerSocketId) {
-              io.to(partnerSocketId).emit('matchCancelled', {
-                matchId,
-                reason: 'partner_disconnected',
-                partnerId: userId
-              });
-              
-              // Re-add to queue
-              roomManager.setUserActive(currentRoom, partnerId, true);
+        // If user is already in an active match, DO NOT cancel the match here.
+        // Let the match-level grace period logic below handle potential game_over after timeout.
+        let hasActiveMatch = false;
+        try {
+          const room = roomManager.getRoom(currentRoom);
+          if (room && room.matches && room.matches.size > 0) {
+            for (const [, m] of room.matches) {
+              if (m && (m.player1 === userId || m.player2 === userId)) { hasActiveMatch = true; break; }
             }
           }
-        });
+        } catch {}
+
+        if (!currentMatchId && !hasActiveMatch) {
+          // Cancel pending matchmaking pairings only when not in an active match
+          const cancelledMatches = roomManager.cancelMatchesForUser(currentRoom, userId);
+          
+          // Notify partners of cancelled pending matches
+          cancelledMatches.forEach(matchId => {
+            const match = roomManager.getMatch(currentRoom, matchId);
+            if (match) {
+              const partnerId = match.player1 === userId ? match.player2 : match.player1;
+              const partnerSocketId = roomManager.getUserSocket(currentRoom, partnerId);
+              
+              if (partnerSocketId) {
+                io.to(partnerSocketId).emit('matchCancelled', {
+                  matchId,
+                  reason: 'partner_disconnected',
+                  partnerId: userId
+                });
+                
+                // Re-add to queue
+                roomManager.setUserActive(currentRoom, partnerId, true);
+              }
+            }
+          });
+        }
         
-        // Remove user
+        // Remove user from room users list regardless
         roomManager.removeUserFromRoom(currentRoom, userId);
       }
       

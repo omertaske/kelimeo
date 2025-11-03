@@ -1,15 +1,26 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState, useEffect } from 'react';
 import './BagDrawer.css';
+import { snapshotToDistribution, compareDistributions } from './bagUtils';
+import { logEvent } from '../../../utils/telemetry';
 
 /**
  * TEK ORTAK TILE BAG — Torba İçeriği Görüntüleyici
  * Global tileBag'in snapshot'ını kullanarak torbadaki harfleri gösterir
  */
-const BagDrawer = ({ tileBagSnapshot }) => {
+const BagDrawer = ({ tileBagSnapshot, mpLetterScores, mpDistribution }) => {
   const [isOpen, setIsOpen] = useState(false);
 
   // TEK ORTAK TILE BAG — Snapshot'tan harf frekanslarını al
   const getLetterFrequency = () => {
+    // MP mod: dağılım gelmişse başlangıç dağılımını göster (kalan sayıları server vermiyor olabilir)
+    if (!tileBagSnapshot && (mpDistribution || mpLetterScores)) {
+      const letters = Object.keys(mpLetterScores || {}).sort((a, b) => a.localeCompare(b, 'tr'));
+      return letters.map(letter => ({
+        letter,
+        count: mpDistribution && mpDistribution[letter] ? mpDistribution[letter] : 0,
+        value: (mpLetterScores && mpLetterScores[letter]) || 0,
+      }));
+    }
     if (!tileBagSnapshot) return [];
     
     const frequency = [];
@@ -33,6 +44,19 @@ const BagDrawer = ({ tileBagSnapshot }) => {
   // TEK ORTAK TILE BAG — Toplam kalan taş sayısı
   const totalLetters = letterFrequency.reduce((sum, item) => sum + item.count, 0);
 
+  // MP dağılımı ile UI snapshot karşılaştırması (varsa)
+  const equality = useMemo(() => {
+    if (!tileBagSnapshot || !mpDistribution) return null;
+    const uiDist = snapshotToDistribution(tileBagSnapshot);
+    return compareDistributions(uiDist, mpDistribution);
+  }, [tileBagSnapshot, mpDistribution]);
+
+  useEffect(() => {
+    if (equality && equality.equal === false) {
+      logEvent('state_divergence', { kind: 'tilebag_distribution', at: equality.diffAt, ui: equality.a, server: equality.b });
+    }
+  }, [equality]);
+
   return (
     <div className={`bag-drawer ${isOpen ? 'open' : 'closed'}`}>
       <button 
@@ -50,7 +74,7 @@ const BagDrawer = ({ tileBagSnapshot }) => {
         <div className="drawer-content">
           <div className="drawer-header">
             <h3>🎒 Torbadaki Harfler</h3>
-            <p className="total-count">Toplam: <strong>{totalLetters}</strong> harf</p>
+            <p className="total-count">Toplam: <strong>{totalLetters}</strong> harf{!tileBagSnapshot && (mpDistribution || mpLetterScores) ? ' (başlangıç dağılımı)' : ''}</p>
           </div>
           
           <div className="letters-grid">
@@ -67,6 +91,12 @@ const BagDrawer = ({ tileBagSnapshot }) => {
               </div>
             ))}
           </div>
+
+          {equality && (
+            <div className="distribution-check" role="status" aria-live="polite" style={{marginTop: 8, fontSize: '0.85rem'}}>
+              {equality.equal ? '✅ Sunucu dağılımı ile UI snapshot eşleşiyor.' : `⚠️ Dağılım farkı: ${equality.diffAt} (UI: ${equality.a} / Sunucu: ${equality.b})`}
+            </div>
+          )}
 
           {totalLetters === 0 && (
             <div className="empty-bag">
