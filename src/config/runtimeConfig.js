@@ -9,7 +9,7 @@ const defaultConfig = {
 };
 
 export function getConfig() {
-  const w = (typeof globalThis !== 'undefined' && globalThis.window) ? globalThis.window : undefined;
+  const w = (typeof window !== 'undefined') ? window : undefined;
   const injected = (w && w.__CONFIG__) ? w.__CONFIG__ : undefined;
   // Shallow merge, deep enough for our current keys
   return {
@@ -27,4 +27,5 @@ export function getSocketUrl() {
   return cfg.SOCKET_URL || defaultConfig.SOCKET_URL;
 }
 
-export default { getConfig, getSocketUrl };
+const runtimeConfig = { getConfig, getSocketUrl };
+export default runtimeConfig;

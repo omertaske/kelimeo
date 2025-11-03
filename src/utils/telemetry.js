@@ -1,6 +1,6 @@
 const STORAGE_KEY = 'kelimeo_telemetry';
 
-const getGlobal = () => (typeof globalThis !== 'undefined' && globalThis.window) ? globalThis.window : undefined;
+const getGlobal = () => (typeof window !== 'undefined') ? window : undefined;
 const read = () => {
   const g = getGlobal();
   try { return JSON.parse((g && g.localStorage && g.localStorage.getItem(STORAGE_KEY)) || '{}'); } catch { return {}; }
