@@ -45,7 +45,18 @@ const GameRoom = () => {
   const { roomId } = useParams();
   const navigate = useNavigate();
   const location = useLocation();
-  const initialData = useMemo(() => location.state || {}, [location.state]);
+  const initialData = useMemo(() => {
+    if (location.state) return location.state;
+    // Fallback: refresh/reconnect durumunda son maçı sessionStorage'tan yükle
+    try {
+      const saved = sessionStorage.getItem('kelimeo:lastMatch');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (parsed?.roomId === roomId) return parsed;
+      }
+    } catch {}
+    return {};
+  }, [location.state, roomId]);
   const matchId = initialData?.matchId;
   const partnerId = initialData?.partnerId;
   const mpMode = !!matchId; // Eşleşmeden geldiysek çok oyunculu mod
@@ -65,6 +76,7 @@ const GameRoom = () => {
     onMatchError,
     onWaitingOpponent,
     onFullState,
+    onYourRack,
   } = useMatchGame();
   const { 
     gameState, 
@@ -170,6 +182,7 @@ const GameRoom = () => {
   // MP: Socket event abonelikleri
   useEffect(() => {
     if (!mpMode) return;
+    const unsubs = [];
     const c1 = onGameReady((payload) => {
       setMpScores(payload.state?.scores || {});
       prevScoresRef.current = payload.state?.scores || {};
@@ -193,8 +206,11 @@ const GameRoom = () => {
           : (payload.tilebag_info.distribution || null);
         if (dist) setMpDistribution(dist);
       }
+      // After game is ready, request full state (board/racks)
+      try { requestFullState({ matchId, roomId }); } catch {}
     });
-    const c2 = onStatePatch(({ move, boardDiff, scores, tileBagRemaining, currentTurn, turn_expires_at, turnExpiresAt, tilebag_info }) => {
+    unsubs.push(c1);
+    const c2 = onStatePatch(({ move, boardDiff, scores, tileBagRemaining, currentTurn, turn_expires_at, turnExpiresAt, tilebag_info, rackCounts }) => {
       if (scores) {
         // Son hamle puanı: skor farkından hesapla
         try {
@@ -213,6 +229,13 @@ const GameRoom = () => {
       if (typeof tileBagRemaining === 'number') setMpTileBagRemaining(tileBagRemaining);
       if (currentTurn) setMpCurrentTurn(currentTurn);
   if (turn_expires_at || turnExpiresAt) setMpTurnEndsAt(turn_expires_at || turnExpiresAt);
+      // Update opponent rack count if provided (lightweight sync)
+      if (rackCounts && partnerId) {
+        try {
+          const opp = rackCounts[partnerId];
+          if (typeof opp === 'number') setMpOppRackCount(opp);
+        } catch (e) {}
+      }
       if (tilebag_info?.letterScores) setMpLetterScores(tilebag_info.letterScores);
       if (tilebag_info?.distribution) {
         const dist = Array.isArray(tilebag_info.distribution)
@@ -238,6 +261,7 @@ const GameRoom = () => {
         }
       }
     });
+    unsubs.push(c2);
     const c3 = onTurnChanged(({ currentTurn, reason, turn_expires_at, turnExpiresAt }) => {
       setMpCurrentTurn(currentTurn);
       if (turn_expires_at || turnExpiresAt) {
@@ -249,22 +273,25 @@ const GameRoom = () => {
       }
       setToastMessage({ text: toastForTurnReason(reason), type: 'info', duration: 1500 });
     });
+    unsubs.push(c3);
     const c4 = onOpponentLeft(() => {
       setToastMessage({ text: t('toast.opponentLeft'), type: 'yellow', duration: 2000 });
     });
+    unsubs.push(c4);
     const c5 = onGameOver(({ winner }) => {
       setToastMessage({ text: `${t('toast.gameOver')} Kazanan: ${winner ?? 'Yok'}`, type: 'blue', duration: 2500 });
     });
+    unsubs.push(c5);
     const c6 = onMatchError((e) => {
       const key = mapMatchErrorCode(e?.code);
       const msg = key ? t(key) : (e?.message || 'Bilinmeyen hata');
   logEvent('move_error', { code: e?.code, message: e?.message });
-      if (['ROOM_NOT_FOUND','MATCH_NOT_FOUND','UNAUTHORIZED','JOIN_FAILED'].includes(e?.code)) {
+      if (['ROOM_NOT_FOUND','MATCH_NOT_FOUND','UNAUTHORIZED','JOIN_FAILED','INVALID_STATE'].includes(e?.code)) {
         logEvent('room_bootstrap_fail', { matchId, roomId, code: e?.code });
       }
       if (e?.code) incrementCounter('move_err_code_count', e.code);
       setToastMessage({ text: `❌ ${msg}`, type: 'error', duration: 2500 });
-      if (['ROOM_NOT_FOUND','MATCH_NOT_FOUND','UNAUTHORIZED'].includes(e?.code)) {
+      if (['ROOM_NOT_FOUND','MATCH_NOT_FOUND','UNAUTHORIZED','INVALID_STATE'].includes(e?.code)) {
         // Graceful fallback to rooms list
         navigate('/rooms');
       }
@@ -276,7 +303,9 @@ const GameRoom = () => {
         setCurrentScore(0);
       }
     });
-  const c7 = onWaitingOpponent(() => setToastMessage({ text: t('toast.waitingOpponent'), type: 'info', duration: 1500 }));
+    unsubs.push(c6);
+    const c7 = onWaitingOpponent(() => setToastMessage({ text: t('toast.waitingOpponent'), type: 'info', duration: 1500 }));
+    unsubs.push(c7);
     const c8 = onFullState((full) => {
       setMpScores(full.scores || {});
       prevScoresRef.current = full.scores || {};
@@ -304,8 +333,13 @@ const GameRoom = () => {
       }
       logEvent('full_state_sync', { matchId, roomId });
     });
-    return () => { c1(); c2(); c3(); c4(); c5(); c6(); c7(); c8(); };
-  }, [mpMode, onGameReady, onStatePatch, onTurnChanged, onOpponentLeft, onGameOver, onMatchError, onWaitingOpponent, onFullState, placedTiles, clearPlacedTiles, currentUser?.id, matchId, roomId, navigate]);
+    unsubs.push(c8);
+    return () => {
+      for (const fn of unsubs) {
+        try { typeof fn === 'function' && fn(); } catch {}
+      }
+    };
+  }, [mpMode, onGameReady, onStatePatch, onTurnChanged, onOpponentLeft, onGameOver, onMatchError, onWaitingOpponent, onFullState, placedTiles, clearPlacedTiles, currentUser?.id, matchId, roomId, navigate, requestFullState, partnerId]);
 
   // MP: Maça katıl ve tam state iste
   useEffect(() => {
@@ -321,16 +355,22 @@ const GameRoom = () => {
     }
     const doJoin = () => {
       mpJoinMatch({ matchId, roomId });
-      requestFullState({ matchId });
+      // full_state will be requested after game_ready to avoid race; still add a small fallback delay
+      setTimeout(() => { try { requestFullState({ matchId, roomId }); } catch {} }, 200);
       logEvent('reconnect_join', { matchId, roomId });
       logEvent('room_bootstrap_ok', { matchId, roomId });
     };
-    // Hemen katıl ve tam state iste
+    const c9 = onYourRack(({ rack }) => {
+      if (Array.isArray(rack)) setMpRack(rack || []);
+    });
+    // Join now and also on reconnect
     doJoin();
-    // Reconnect olduğunda tekrar katıl ve state iste
     on('connect', doJoin);
-    return () => off('connect', doJoin);
-  }, [mpMode, matchId, roomId, mpJoinMatch, requestFullState, currentUser, navigate, on, off]);
+    return () => {
+      try { off('connect', doJoin); } catch {}
+      try { c9(); } catch {}
+    };
+  }, [mpMode, matchId, roomId, mpJoinMatch, requestFullState, currentUser, navigate, on, off, onYourRack]);
 
   // Mouse move listener for dragging
   useEffect(() => {
@@ -381,6 +421,20 @@ const GameRoom = () => {
     iv = setInterval(tick, 500);
     return () => iv && clearInterval(iv);
   }, [mpMode, mpTurnEndsAt]);
+
+  // MP: Turn süresi 0'a düştüğünde ama event gelmediyse, hafif senkron (self-heal)
+  useEffect(() => {
+    if (!mpMode) return;
+    if (mpTurnRemaining !== 0) return;
+    if (!matchId) return;
+    // 1 sn sonra halen 0 ise full state iste (ör. arka plan zamanlayıcı gecikmesi)
+    const t = setTimeout(() => {
+      if (mpTurnRemaining === 0) {
+        try { requestFullState({ matchId, roomId }); } catch {}
+      }
+    }, 1000);
+    return () => clearTimeout(t);
+  }, [mpMode, mpTurnRemaining, matchId, requestFullState, roomId]);
 
   // Teşhis: selector değerleri (bir kez)
   useEffect(() => {
@@ -640,6 +694,11 @@ const GameRoom = () => {
   const handleSubmitWord = async () => {
     if (placedTiles.length === 0 || isSubmitting) return;
     if (mpMode) {
+      // Turn guard in MP
+      if (mpCurrentTurn !== toServerPlayerId(currentUser?.id)) {
+        setToastMessage({ text: t('toast.notYourTurn'), type: 'error', duration: 1200 });
+        return;
+      }
       // Otoriter sunucu: hamleyi göndermeden önce temel doğrulamalar ve payload normalizasyonu
       const baseBoard = (mpBoard?.length ? mpBoard : gameBoard) || [];
       if (!baseBoard?.length) return;
@@ -648,6 +707,12 @@ const GameRoom = () => {
       if (!validation.ok) {
         const msg = validation.msg && validation.msg.startsWith('toast.') ? t(validation.msg) : validation.msg;
         setToastMessage({ text: `❌ ${msg}`, type: 'error', duration: 1800 });
+        // MP: İstemci doğrulaması başarısızsa pending taşları rafta geri göster ve temizle
+        if (placedTiles.length) {
+          setMpRack(prev => prev.concat(placedTiles.map(t => t.letter)));
+          clearPlacedTiles();
+          setCurrentScore(0);
+        }
         return;
       }
       const temp = baseBoard.map(r => r.map(c => ({ ...c })));
@@ -665,12 +730,20 @@ const GameRoom = () => {
       const formed = findAllWords ? findAllWords(temp, positions) : [];
       if (!formed.length) {
         setToastMessage({ text: t('toast.needWord'), type: 'error', duration: 2000 });
+        if (placedTiles.length) {
+          setMpRack(prev => prev.concat(placedTiles.map(t => t.letter)));
+          clearPlacedTiles();
+          setCurrentScore(0);
+        }
         return;
       }
       // Tek harf/blank temsilcisi kontrolü
       for (const p of placedTiles) {
         if (p.isBlank && !p.repr) {
           setToastMessage({ text: t('toast.selectBlank'), type: 'error', duration: 2000 });
+          setMpRack(prev => prev.concat(placedTiles.map(t => t.letter)));
+          clearPlacedTiles();
+          setCurrentScore(0);
           return;
         }
       }
@@ -679,6 +752,9 @@ const GameRoom = () => {
         .map(w => w.word);
       if (!words.length) {
         setToastMessage({ text: t('toast.needTwoLetters'), type: 'error', duration: 2000 });
+        setMpRack(prev => prev.concat(placedTiles.map(t => t.letter)));
+        clearPlacedTiles();
+        setCurrentScore(0);
         return;
       }
       // Payload
@@ -703,7 +779,7 @@ const GameRoom = () => {
       clearPlacedTiles();
       setCurrentScore(0);
       // Kısa süre sonra tam state iste (raf senkronu için)
-      setTimeout(() => requestFullState({ matchId }), 250);
+      setTimeout(() => requestFullState({ matchId, roomId }), 250);
       return;
     }
 
@@ -754,6 +830,10 @@ const GameRoom = () => {
 
   const handlePass = () => {
     if (mpMode) {
+      if (mpCurrentTurn !== toServerPlayerId(currentUser?.id)) {
+        setToastMessage({ text: t('toast.notYourTurn'), type: 'error', duration: 1200 });
+        return;
+      }
       mpPassTurn({ matchId, roomId });
       return;
     }
@@ -895,9 +975,11 @@ const GameRoom = () => {
         }
         
         if (mpMode) mpLeaveMatch({ matchId, roomId }); else leaveGame();
+        try { sessionStorage.removeItem('kelimeo:lastMatch'); } catch {}
         navigate('/rooms');
       }
     } else {
+      try { sessionStorage.removeItem('kelimeo:lastMatch'); } catch {}
       navigate('/rooms');
     }
   };

@@ -47,7 +47,22 @@ const MatchmakingScreen = () => {
       // Immediately join the match room on server
       joinMatch({ matchId: data.matchId, roomId });
 
-  // Navigate to game route after 2 seconds (GameRoom UI)
+      // Persist last match info for refresh/reconnect
+      try {
+        sessionStorage.setItem(
+          'kelimeo:lastMatch',
+          JSON.stringify({
+            matchId: data.matchId,
+            roomId,
+            partnerId: data.partnerId,
+            role: data.role,
+          })
+        );
+      } catch (e) {
+        console.warn('Unable to persist lastMatch to sessionStorage', e);
+      }
+
+      // Navigate to game route after 2 seconds (GameRoom UI)
       setTimeout(() => {
         navigate(`/game/${roomId}`, {
           state: {

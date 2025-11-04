@@ -57,6 +57,8 @@ function setupSocketHandlers(io, socket, roomManager, gameStateManager) {
           const gameOver = gameStateManager.endGame(matchId, { winner: opponentId, reason: 'timeout' });
           if (gameOver) io.to(matchId).emit('game_over', gameOver);
           gameStateManager.cleanup(matchId);
+          // Remove stale match mapping to prevent accidental state re-bootstrap
+          try { roomManager.removeMatch(roomId, matchId); } catch {}
           CLEAR_TURN_TIMER(matchId);
           return;
         }
@@ -369,10 +371,13 @@ function setupSocketHandlers(io, socket, roomManager, gameStateManager) {
         return;
       }
 
-      // Join socket room for this match
+  // Join socket room for this match
       socket.join(matchId);
       socket.data.userId = userId; // ensure we have userId for disconnects
       socket.data.currentMatchId = matchId;
+
+  // If there was a pending disconnect grace timer for this user, cancel it (user has rejoined)
+  try { CLEAR_DISCONNECT_TIMER(matchId, userId); } catch {}
 
       // Update user socket mapping for safety
       try {
@@ -398,12 +403,17 @@ function setupSocketHandlers(io, socket, roomManager, gameStateManager) {
       if (gameStateManager.bothJoined(matchId)) {
         gameStateManager.initializeIfReady(matchId);
         const expiresAt = SCHEDULE_TURN_TIMER(matchId, roomId);
+        // Both are back in; ensure any pending disconnect timers for either player are cleared
+        try { CLEAR_DISCONNECT_TIMER(matchId, match.player1); } catch {}
+        try { CLEAR_DISCONNECT_TIMER(matchId, match.player2); } catch {}
+        const st = gameStateManager.getState(matchId);
         io.to(matchId).emit('game_ready', {
           matchId,
           roomId,
           players: { player1: match.player1, player2: match.player2 },
           state: initialState,
           turn_expires_at: expiresAt,
+          tileBagRemaining: st?.tileBag?.remaining?.() ?? undefined,
           tilebag_info: { letterScores: LETTER_SCORES, distribution: LETTER_DISTRIBUTION },
         });
         // Timer başlatıldı
@@ -419,11 +429,23 @@ function setupSocketHandlers(io, socket, roomManager, gameStateManager) {
   // place_tiles
   socket.on('place_tiles', async ({ matchId, roomId, userId, move }) => {
     try {
+      const actorId = userId || socket.data.userId;
+      // Require existing game state; if missing, do not bootstrap here to avoid accidental resets
+      const existingState = gameStateManager.getState(matchId);
+      if (!existingState) {
+        socket.emit('match_error', { message: 'State not found', code: 'INVALID_STATE' });
+        return;
+      }
       // Early idempotency check: if same moveId already processed, echo duplicate without re-applying
       try {
-        const st = gameStateManager.getState(matchId);
+        const st = existingState;
         const mid = move?.meta?.moveId;
         if (st && mid && st.processedMoveIds && st.processedMoveIds.has(mid)) {
+          const dupExpiry = turnExpiry.get(matchId) || null;
+          const rackCountsDup = {
+            [st.players.player1]: (st.racks?.[st.players.player1] || []).length,
+            [st.players.player2]: (st.racks?.[st.players.player2] || []).length,
+          };
           io.to(matchId).emit('state_patch', {
             matchId,
             move: { ...(move || {}), meta: { ...(move?.meta || {}), duplicate: true } },
@@ -431,7 +453,8 @@ function setupSocketHandlers(io, socket, roomManager, gameStateManager) {
             scores: st.scores,
             currentTurn: st.currentTurn,
             tileBagRemaining: st.tileBag?.remaining?.() ?? undefined,
-            turn_expires_at: turnExpiry.get(matchId) || null,
+            rackCounts: rackCountsDup,
+            turn_expires_at: dupExpiry,
           });
           return;
         }
@@ -442,11 +465,11 @@ function setupSocketHandlers(io, socket, roomManager, gameStateManager) {
         socket.emit('match_error', { message: 'Match not found', code: 'MATCH_NOT_FOUND' });
         return;
       }
-      if (match.player1 !== userId && match.player2 !== userId) {
+      if (match.player1 !== actorId && match.player2 !== actorId) {
         socket.emit('match_error', { message: 'Not authorized', code: 'UNAUTHORIZED' });
         return;
       }
-      if (!gameStateManager.validateTurn(matchId, userId)) {
+      if (!gameStateManager.validateTurn(matchId, actorId)) {
         socket.emit('match_error', { message: 'Not your turn', code: 'INVALID_TURN' });
         return;
       }
@@ -468,10 +491,14 @@ function setupSocketHandlers(io, socket, roomManager, gameStateManager) {
           ? move.meta.validatedWords
           : (words.length ? words.map(w => ({ word: w, positions: move.tiles.map(t => ({ row: t.row, col: t.col })) })) : []);
         try {
-          result = gameStateManager.applyAuthoritativeMove(matchId, userId, move, validated);
+          result = gameStateManager.applyAuthoritativeMove(matchId, actorId, move, validated);
         } catch (e) {
           if (e && (e.code === 'INVALID_MOVE' || e.message === 'INVALID_MOVE')) {
             socket.emit('match_error', { message: 'Geçersiz hamle', code: 'INVALID_MOVE' });
+            return;
+          }
+          if (e && (e.code === 'INVALID_STATE' || e.message === 'INVALID_STATE')) {
+            socket.emit('match_error', { message: 'State not found', code: 'INVALID_STATE' });
             return;
           }
           throw e;
@@ -486,12 +513,29 @@ function setupSocketHandlers(io, socket, roomManager, gameStateManager) {
             points: serverPoints,
           }
         };
-        result = gameStateManager.applyMove(matchId, userId, serverMove);
+        try {
+          result = gameStateManager.applyMove(matchId, actorId, serverMove);
+        } catch (e) {
+          if (e && (e.code === 'INVALID_STATE' || e.message === 'INVALID_STATE')) {
+            socket.emit('match_error', { message: 'State not found', code: 'INVALID_STATE' });
+            return;
+          }
+          throw e;
+        }
       }
 
       const { state, safeMove } = result;
 
-      // Broadcast state patch (boardDiff = placed tiles), plus updated scores
+      // Schedule next turn timer first so clients receive the accurate expiry
+      const nextExpiresAt = SCHEDULE_TURN_TIMER(matchId, roomId);
+
+      // Rack counts for lightweight sync (no full racks leaked)
+      const rackCounts = {
+        [state.players.player1]: (state.racks?.[state.players.player1] || []).length,
+        [state.players.player2]: (state.racks?.[state.players.player2] || []).length,
+      };
+
+      // Broadcast state patch (boardDiff = placed tiles), plus updated scores and rack counts
       io.to(matchId).emit('state_patch', {
         matchId,
         move: safeMove,
@@ -499,11 +543,22 @@ function setupSocketHandlers(io, socket, roomManager, gameStateManager) {
         scores: state.scores,
         currentTurn: state.currentTurn,
         tileBagRemaining: state.tileBag?.remaining?.() ?? undefined,
-        turn_expires_at: turnExpiry.get(matchId) || null,
+        rackCounts,
+        turn_expires_at: nextExpiresAt,
       });
 
+      // Send the actor's full rack privately to their socket so their UI can update without leaking racks
+      try {
+        const ackActorId = safeMove?.by;
+        const actorSocketId = roomManager.getUserSocket(roomId, ackActorId);
+        if (actorSocketId) {
+          io.to(actorSocketId).emit('your_rack', { matchId, rack: state.racks?.[ackActorId] || [] });
+        }
+      } catch (e) {
+        // non-fatal
+      }
+
       // Notify turn change
-      const nextExpiresAt = SCHEDULE_TURN_TIMER(matchId, roomId);
       io.to(matchId).emit('turn_changed', {
         matchId,
         currentTurn: state.currentTurn,
@@ -520,22 +575,47 @@ function setupSocketHandlers(io, socket, roomManager, gameStateManager) {
   // pass_turn
   socket.on('pass_turn', ({ matchId, roomId, userId }) => {
     try {
+      const actorId = userId || socket.data.userId;
+      const existingState = gameStateManager.getState(matchId);
+      if (!existingState) {
+        socket.emit('match_error', { message: 'State not found', code: 'INVALID_STATE' });
+        return;
+      }
       const match = roomManager.getMatch(roomId, matchId);
       if (!match) {
         socket.emit('match_error', { message: 'Match not found', code: 'MATCH_NOT_FOUND' });
         return;
       }
-      if (match.player1 !== userId && match.player2 !== userId) {
+      if (match.player1 !== actorId && match.player2 !== actorId) {
         socket.emit('match_error', { message: 'Not authorized', code: 'UNAUTHORIZED' });
         return;
       }
-      if (!gameStateManager.validateTurn(matchId, userId)) {
+      if (!gameStateManager.validateTurn(matchId, actorId)) {
         socket.emit('match_error', { message: 'Not your turn', code: 'INVALID_TURN' });
         return;
       }
 
-      const state = gameStateManager.passTurn(matchId, userId);
+      const state = gameStateManager.passTurn(matchId, actorId);
+      // Schedule timer first
       const nextExpiresAt = SCHEDULE_TURN_TIMER(matchId, roomId);
+
+      // Broadcast lightweight state_patch so clients can sync turn/score/tilebag/rackcounts
+      const rackCounts = {
+        [state.players.player1]: (state.racks?.[state.players.player1] || []).length,
+        [state.players.player2]: (state.racks?.[state.players.player2] || []).length,
+      };
+
+      io.to(matchId).emit('state_patch', {
+        matchId,
+        move: { type: 'pass', by: userId, meta: { reason: 'pass' } },
+        boardDiff: [],
+        scores: state.scores,
+        currentTurn: state.currentTurn,
+        tileBagRemaining: state.tileBag?.remaining?.() ?? undefined,
+        rackCounts,
+        turn_expires_at: nextExpiresAt,
+      });
+
       io.to(matchId).emit('turn_changed', { matchId, currentTurn: state.currentTurn, reason: 'pass', turn_expires_at: nextExpiresAt });
     } catch (error) {
       console.error('❌ Error in pass_turn:', error);
@@ -574,14 +654,16 @@ function setupSocketHandlers(io, socket, roomManager, gameStateManager) {
   });
 
   // request_full_state (optional sync)
-  socket.on('request_full_state', ({ matchId }) => {
+  socket.on('request_full_state', ({ matchId, roomId, userId }) => {
     try {
-      const state = gameStateManager.getState(matchId);
+      let state = gameStateManager.getState(matchId);
+
       if (!state) {
         socket.emit('match_error', { message: 'State not found', code: 'INVALID_STATE' });
         return;
       }
-      const me = socket.data.userId;
+
+      const me = socket.data.userId || userId;
       const { player1, player2 } = state.players || {};
       const opponent = me === player1 ? player2 : player1;
       const myRack = state.racks?.[me] || [];
@@ -682,7 +764,10 @@ function setupSocketHandlers(io, socket, roomManager, gameStateManager) {
             if (stillState && !gameStateManager.bothJoined(currentMatchId)) {
               const gameOver = gameStateManager.endGame(currentMatchId, { winner: opponentId, reason: 'opponent_disconnected' });
               if (gameOver) io.to(currentMatchId).emit('game_over', gameOver);
+              // capture roomId before cleanup to remove match mapping as well
+              const rmId = stillState.roomId;
               gameStateManager.cleanup(currentMatchId);
+              try { if (rmId) roomManager.removeMatch(rmId, currentMatchId); } catch {}
               CLEAR_TURN_TIMER(currentMatchId);
             }
             CLEAR_DISCONNECT_TIMER(currentMatchId, userId);

@@ -35,10 +35,14 @@ export const useMatchGame = () => {
     socket.emit('leave_match', { matchId, roomId, userId: currentUser.id });
   }, [socket, currentUser]);
 
-  const requestFullState = useCallback(({ matchId }) => {
+  const requestFullState = useCallback(({ matchId, roomId }) => {
     if (!socket) return;
-    socket.emit('request_full_state', { matchId });
-  }, [socket]);
+    const payload = { matchId };
+    // Send roomId and userId to help server bootstrap/authorize and avoid race conditions
+    if (roomId) payload.roomId = roomId;
+    if (currentUser?.id) payload.userId = currentUser.id;
+    socket.emit('request_full_state', payload);
+  }, [socket, currentUser]);
 
   // Subscriptions
   const onGameReady = useCallback((cb) => { on('game_ready', cb); return () => off('game_ready', cb); }, [on, off]);
@@ -49,6 +53,7 @@ export const useMatchGame = () => {
   const onMatchError = useCallback((cb) => { on('match_error', cb); return () => off('match_error', cb); }, [on, off]);
   const onWaitingOpponent = useCallback((cb) => { on('waiting_opponent', cb); return () => off('waiting_opponent', cb); }, [on, off]);
   const onFullState = useCallback((cb) => { on('full_state', cb); return () => off('full_state', cb); }, [on, off]);
+  const onYourRack = useCallback((cb) => { on('your_rack', cb); return () => off('your_rack', cb); }, [on, off]);
 
   return {
     joinMatch,
@@ -65,5 +70,6 @@ export const useMatchGame = () => {
     onMatchError,
     onWaitingOpponent,
     onFullState,
+    onYourRack,
   };
 };
