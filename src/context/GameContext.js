@@ -1028,8 +1028,10 @@ export const GameProvider = ({ children }) => {
     return { success: true, message: 'Sıra geçildi!' };
   }, [currentTurn, switchTurn, gameState, playerPassCount, opponentPassCount, isMultiplayer, currentGame, currentUser]);
 
-  const placeTile = useCallback((letter, row, col, blankRepr = null, tileId = undefined) => {
-    if (currentTurn !== 'player') return false;
+  const placeTile = useCallback((letter, row, col, blankRepr = null, tileId = undefined, options = {}) => {
+    // MP modda GameRoom bu çağrıyı force=true ile yapabilir; aksi halde local kurala uyarız
+    const force = options && options.force === true;
+    if (currentTurn !== 'player' && !force) return false;
 
     // Blank (*) joker için repr bilgisi ekle
     const tileData = {

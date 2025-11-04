@@ -310,8 +310,13 @@ const GameRoom = () => {
   // MP: Maça katıl ve tam state iste
   useEffect(() => {
     if (!mpMode) return;
-    if (!currentUser || !roomId || !matchId) {
+    // roomId/matchId yoksa geri dön (geçersiz rota)
+    if (!roomId || !matchId) {
       navigate('/rooms');
+      return;
+    }
+    // currentUser henüz hydrate edilmemiş olabilir; yönlendirme yapmadan bekle
+    if (!currentUser) {
       return;
     }
     const doJoin = () => {
@@ -514,7 +519,8 @@ const GameRoom = () => {
           setBlankSelection({ row, col, tileId: uuidv4() });
           setDraggingLetter(null);
         } else {
-          placeTile(draggingLetter, row, col);
+          // MP modda context.placeTile turn guard'ını force=true ile geçiyoruz (sadece önizleme için)
+          placeTile(draggingLetter, row, col, null, undefined, mpMode ? { force: true } : undefined);
           try { logEvent('dnd_drop', { letter: draggingLetter, row, col }); } catch {}
           if (mpMode) {
             // MP raftan optimistik çıkar
@@ -568,7 +574,8 @@ const GameRoom = () => {
   const handleBlankSelect = (letter) => {
     if (blankSelection) {
       const { row, col, tileId } = blankSelection;
-      placeTile('*', row, col, letter, tileId); // Blank joker + repr + id
+  // MP modda force=true ile önizleme için yerleştir
+  placeTile('*', row, col, letter, tileId, mpMode ? { force: true } : undefined); // Blank joker + repr + id
       if (mpMode) {
         // MP raftan '*' düşür
         setMpRack(prev => {

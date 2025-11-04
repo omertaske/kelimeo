@@ -20,6 +20,7 @@ const MatchmakingScreen = () => {
   const [matchData, setMatchData] = useState(null);
   const [errorMessage, setErrorMessage] = useState('');
   const hasJoinedRef = useRef(false); // Track if already joined (stable across renders)
+  const matchedRef = useRef(false);   // Eşleşme bulundu mu? Cleanup'ta iptal etmeyelim
 
   const {
     isConnected,
@@ -41,6 +42,7 @@ const MatchmakingScreen = () => {
       console.log('🎉 Match found!', data);
       setStatus('matched');
       setMatchData(data);
+      matchedRef.current = true;
 
       // Immediately join the match room on server
       joinMatch({ matchId: data.matchId, roomId });
@@ -133,15 +135,20 @@ const MatchmakingScreen = () => {
         hasJoinedRef.current = false; // Reset on error
       });
 
-    // Cleanup: Leave room on unmount
+    // Cleanup: Yalnızca eşleşme bulunmadıysa odadan çık ve iptal et
     return () => {
-      console.log('🧹 Leaving room on unmount...');
-      leaveRoomAndCancel(roomId);
+      if (!matchedRef.current) {
+        console.log('🧹 Leaving room on unmount (no match) ...');
+        leaveRoomAndCancel(roomId);
+      } else {
+        console.log('🧹 Skipping leave on unmount (matched)');
+      }
       hasJoinedRef.current = false;
     };
   }, [roomId, currentUser, navigate, isConnected, joinRoomAndMatch, leaveRoomAndCancel]);
 
   const handleCancel = () => {
+    matchedRef.current = false; // explicit
     leaveRoomAndCancel(roomId);
     navigate('/rooms');
   };

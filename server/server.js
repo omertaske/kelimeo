@@ -11,11 +11,20 @@ const server = http.createServer(app);
 
 // Allowed origins for CORS
 const allowedOrigins = [
-  'http://localhost:3000',                          // Local development
-  'http://localhost:5173',                          // Vite local (if needed)
-  'https://kelimeo.vercel.app',                     // Production Vercel
-  'https://kelimeo-git-main-omertaskes-projects.vercel.app', // Vercel git branch
-  'https://kelimeo-git-gh-pages-omertaskes-projects.vercel.app', // Vercel gh-pages branch
+  // Local development (CRA/Vite)
+  'http://localhost:3000',
+  'http://127.0.0.1:3000',
+  'http://localhost:5173',
+  'http://127.0.0.1:5173',
+  // Common LAN usage (regex-style with *)
+  'http://192.168.*.*:3000',
+  'http://192.168.*.*:5173',
+  // Production Vercel deployments
+  'https://kelimeo.vercel.app',
+  'https://kelimeo-git-main-omertaskes-projects.vercel.app',
+  'https://kelimeo-git-gh-pages-omertaskes-projects.vercel.app',
+  // Allow all vercel preview branches under this project (wildcard)
+  'https://*.vercel.app',
 ];
 
 // Add environment variable origins if provided
